@@ -320,6 +320,9 @@ public struct AppInfo: Sendable, Codable {
 /// ```
 public actor AppSelector: @unchecked Sendable {
     
+    /// Creates a new AppSelector instance.
+    public init() {}
+    
     /// Finds a running application by its Bundle Identifier.
     ///
     /// This method searches through all currently running applications to find one
