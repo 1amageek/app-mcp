@@ -1,6 +1,7 @@
 import Foundation
 import AppMCP
 import ArgumentParser
+import AppKit
 
 @main
 struct AppMCPDaemon: AsyncParsableCommand {
@@ -28,6 +29,9 @@ struct AppMCPDaemon: AsyncParsableCommand {
     func run() async throws {
         // Print banner
         printBanner()
+        
+        // Initialize GUI environment to prevent CGS errors
+        await initializeGUIEnvironment()
         
         // Create server
         let server = MCPServer.weatherAppPoC()
@@ -135,5 +139,19 @@ struct AppMCPDaemon: AsyncParsableCommand {
         appmcpd --log-level debug
         
         """)
+    }
+    
+    /// Initialize GUI environment to prevent CGS initialization errors
+    private func initializeGUIEnvironment() async {
+        // Force NSApplication initialization to set up the GUI environment
+        DispatchQueue.main.async {
+            _ = NSApplication.shared
+            NSApplication.shared.setActivationPolicy(.accessory)
+        }
+        
+        // Give the GUI environment time to initialize
+        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        
+        print("🔧 GUI environment initialized for ScreenCaptureKit compatibility")
     }
 }
