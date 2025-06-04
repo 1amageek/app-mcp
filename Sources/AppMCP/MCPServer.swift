@@ -3,7 +3,53 @@ import MCP
 @preconcurrency import ApplicationServices
 import AppKit
 
-/// Main MCP server that coordinates resources and tools
+/// The central coordinator for Model Context Protocol operations in AppMCP.
+///
+/// MCPServer serves as the main entry point for AppMCP functionality, implementing
+/// the MCP v0.7.1 specification for macOS GUI automation. It coordinates between
+/// resource providers (data extraction) and tool executors (action execution),
+/// while managing permissions, application discovery, and MCP protocol communication.
+///
+/// The server handles JSON-RPC communication with MCP clients (typically AI models)
+/// and routes requests to appropriate handlers based on the MCP protocol specification.
+///
+/// ## Topics
+///
+/// ### Creating a Server
+/// - ``init()``
+/// - ``init(resources:tools:)``
+/// - ``weatherAppPoC()``
+///
+/// ### Server Lifecycle
+/// - ``start()``
+/// - ``stop()``
+/// - ``waitUntilCompleted()``
+///
+/// ### Configuration and Validation
+/// - ``validateConfiguration()``
+/// - ``getResourceInfo()``
+/// - ``getToolInfo()``
+///
+/// ### Usage
+///
+/// ```swift
+/// // Create server with default configuration
+/// let server = MCPServer()
+///
+/// // Validate configuration
+/// try await server.validateConfiguration()
+///
+/// // Start the server
+/// try await server.start()
+/// ```
+///
+/// ### Weather App Example
+///
+/// ```swift
+/// // Create server optimized for Weather app automation
+/// let server = MCPServer.weatherAppPoC()
+/// try await server.start()
+/// ```
 public final class MCPServer: @unchecked Sendable {
     
     private let server: MCP.Server

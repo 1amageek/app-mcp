@@ -22,7 +22,9 @@
       "Bash(cp:*)",
       "Bash(rg:*)",
       "mcp__wikideep__ask_question",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(timeout 60s swift package generate-documentation:*)"
     ],
     "deny": []
   }

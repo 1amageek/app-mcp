@@ -14,7 +14,7 @@ public final class ScreenCaptureProvider: @unchecked Sendable {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         
         // Find the target application
-        guard let app = content.applications.first(where: { $0.bundleIdentifier == bundleId }) else {
+        guard let _ = content.applications.first(where: { $0.bundleIdentifier == bundleId }) else {
             throw ScreenCaptureError.applicationNotFound(bundleId)
         }
         
