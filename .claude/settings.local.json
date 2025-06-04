@@ -19,7 +19,10 @@
       "Bash(python3:*)",
       "Bash(swift:*)",
       "Bash(osascript:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(rg:*)",
+      "mcp__wikideep__ask_question",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

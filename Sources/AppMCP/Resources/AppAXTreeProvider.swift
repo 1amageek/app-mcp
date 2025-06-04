@@ -52,7 +52,7 @@ public final class AppAXTreeProvider: MCPResourceProvider, @unchecked Sendable {
         let treeValue = convertToValue(tree)
         
         return .object([
-            "accessibility_tree": treeValue
+            "tree": treeValue
         ])
     }
     

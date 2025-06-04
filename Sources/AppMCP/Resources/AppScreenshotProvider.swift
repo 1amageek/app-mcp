@@ -106,7 +106,8 @@ public final class AppScreenshotProvider: MCPResourceProvider, @unchecked Sendab
                 "format": .string("png"),
                 "width": .int(cgImage.width),
                 "height": .int(cgImage.height),
-                "capture_method": .string("ScreenCaptureKit")
+                "capture_method": .string("ScreenCaptureKit"),
+                "success": .bool(true)
             ])
             
         } catch {
@@ -263,6 +264,7 @@ public final class AppScreenshotProvider: MCPResourceProvider, @unchecked Sendab
             "width": .int(screenImage.width),
             "height": .int(screenImage.height),
             "capture_method": .string("CGWindowList"),
+            "success": .bool(true),
             "window_bounds": .object([
                 "x": .int(Int(point.x)),
                 "y": .int(Int(point.y)),
