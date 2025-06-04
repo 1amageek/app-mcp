@@ -70,10 +70,12 @@ public final class MCPServer: @unchecked Sendable {
         ]
         
         // Initialize tools
+        // Note: Legacy MCPServer - using dummy registry for WaitTool
+        let dummyRegistry = AppRegistry()
         self.tools = [
             MouseClickTool(appSelector: appSelector, tccManager: tccManager),
             KeyboardTool(appSelector: appSelector, tccManager: tccManager),
-            WaitTool()
+            WaitTool(registry: dummyRegistry)
         ]
         
         // Create MCP server

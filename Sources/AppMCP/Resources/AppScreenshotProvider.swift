@@ -44,19 +44,19 @@ public final class AppScreenshotProvider: MCPResourceProvider, @unchecked Sendab
         } else if case let .string(processName) = paramsDict["process_name"] {
             // Find bundle ID from process name for modern capture
             guard let element = try await appSelector.findApp(processName: processName) else {
-                throw MCPError.appNotFound("App with process name '\(processName)' not found")
+                throw MCPError.appNotFound(bundleId: nil, name: processName, pid: nil)
             }
             let pid = try await appSelector.getPid(from: element)
             guard let app = NSRunningApplication(processIdentifier: pid),
                   let id = app.bundleIdentifier else {
-                throw MCPError.appNotFound("Could not find bundle ID for process '\(processName)'")
+                throw MCPError.appNotFound(bundleId: nil, name: processName, pid: nil)
             }
             bundleId = id
         } else if case let .int(pid) = paramsDict["pid"] {
             // Find bundle ID from PID for modern capture
             guard let app = NSRunningApplication(processIdentifier: pid_t(pid)),
                   let id = app.bundleIdentifier else {
-                throw MCPError.appNotFound("Could not find bundle ID for PID \(pid)")
+                throw MCPError.appNotFound(bundleId: nil, name: nil, pid: Int32(pid))
             }
             bundleId = id
         } else {
@@ -165,7 +165,7 @@ public final class AppScreenshotProvider: MCPResourceProvider, @unchecked Sendab
     private func captureWithCGWindowList(bundleId: String) async throws -> MCP.Value {
         // Find the app window ID using accessibility
         guard let appElement = try await appSelector.findApp(bundleId: bundleId) else {
-            throw MCPError.appNotFound("App with bundle ID '\(bundleId)' not found")
+            throw MCPError.appNotFound(bundleId: bundleId, name: nil, pid: nil)
         }
         
         // Get window ID from accessibility element

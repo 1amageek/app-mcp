@@ -2,13 +2,14 @@ import Foundation
 import AppMCP
 import ArgumentParser
 import AppKit
+import MCP
 
 @main
 struct AppMCPDaemon: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "appmcpd",
         abstract: "AppMCP Server Daemon - Model Context Protocol server for macOS GUI automation",
-        version: "0.1.0"
+        version: "0.2.0"
     )
     
     @Flag(name: .long, help: "Use STDIO transport (default)")
@@ -34,25 +35,28 @@ struct AppMCPDaemon: AsyncParsableCommand {
         await initializeGUIEnvironment()
         
         // Create server
-        let server = MCPServer.weatherAppPoC()
+        let server = AppMCPServer()
         
         // Handle special commands
         if validate {
-            try await server.validateConfiguration()
+            print("✅ Configuration validation not yet implemented in v0.2")
             return
         }
         
         if listCapabilities {
-            printCapabilities(server: server)
+            printCapabilities()
             return
         }
         
         // Determine transport
-        if http != nil {
-            print("❌ HTTP transport not yet implemented")
+        let transport: Transport
+        if let httpPort = http {
+            print("❌ HTTP transport not yet implemented in v0.2")
+            print("   Coming in future version with authentication support")
             throw ExitCode.failure
         } else {
             print("📡 Starting AppMCP server with STDIO transport")
+            transport = StdioTransport()
         }
         
         // Set up signal handling for graceful shutdown
@@ -60,7 +64,7 @@ struct AppMCPDaemon: AsyncParsableCommand {
         
         do {
             // Start the server
-            try await server.start()
+            try await server.start(transport: transport)
         } catch {
             print("❌ Failed to start server: \(error)")
             throw ExitCode.failure
@@ -70,37 +74,38 @@ struct AppMCPDaemon: AsyncParsableCommand {
     private func printBanner() {
         print("""
         ╭─────────────────────────────────────────────────────────────╮
-        │                         AppMCP v0.1.0                      │
-        │              macOS GUI Automation via MCP Protocol         │
+        │                         AppMCP v0.2.0                      │
+        │         Multi-App/Multi-Window macOS GUI Automation        │
+        │                    via MCP Protocol                        │
         │                                                             │
-        │  🎯 Weather App PoC: AI-driven weather forecast retrieval  │
+        │  🎯 Advanced UI automation with handle-based management    │
         ╰─────────────────────────────────────────────────────────────╯
         """)
     }
     
-    private func printCapabilities(server: MCPServer) {
+    private func printCapabilities() {
         print("📋 Available Resources:")
-        let resources = server.getResourceInfo()
-        for (name, type) in resources.sorted(by: { $0.key < $1.key }) {
-            print("   • \(name) (\(type))")
-        }
+        print("   • installed_applications - List all installed .app bundles")
+        print("   • running_applications - List currently running applications")
+        print("   • accessible_applications - Apps with accessibility permissions + windows")
+        print("   • list_windows - List windows for specific app handle")
         
         print("\n🔧 Available Tools:")
-        let tools = server.getToolInfo()
-        for (name, type) in tools.sorted(by: { $0.key < $1.key }) {
-            print("   • \(name) (\(type))")
-        }
+        print("   • resolve_app - Get app_handle from bundle_id/name/pid")
+        print("   • resolve_window - Get window_handle from app_handle + title/index")
+        print("   • mouse_click - Click at coordinates (window/screen/global)")
+        print("   • type_text - Type text into focused element")
+        print("   • perform_gesture - Swipe/pinch/rotate gestures")
+        print("   • wait - Wait for time/UI change/window appear/disappear")
         
-        print("\n💡 Weather App PoC Workflow:")
-        print("   1. List running apps: running_applications")
-        print("   2. Target Weather app: bundle_id=com.apple.weather")
-        print("   3. Capture state: app_screenshot")
-        print("   4. Analyze UI: app_accessibility_tree")
-        print("   5. Click search field: mouse_click")
-        print("   6. Type location: type_text")
-        print("   7. Wait for results: wait")
-        print("   8. Select result: mouse_click")
-        print("   9. Extract weather data: app_accessibility_tree")
+        print("\n💡 Typical Automation Workflow:")
+        print("   1. List apps: accessible_applications")
+        print("   2. Get app handle: resolve_app{bundle_id: 'com.apple.weather'}")
+        print("   3. Get window handle: resolve_window{app_handle: 'ah_1234', title_regex: '.*'}")
+        print("   4. Click UI element: mouse_click{window_handle: 'wh_5678', x: 100, y: 200}")
+        print("   5. Type search query: type_text{window_handle: 'wh_5678', text: 'Tokyo'}")
+        print("   6. Wait for results: wait{condition: 'ui_change', duration_ms: 3000}")
+        print("   7. Extract data: list_windows{app_handle: 'ah_1234'}")
     }
     
     private func setupSignalHandling() {

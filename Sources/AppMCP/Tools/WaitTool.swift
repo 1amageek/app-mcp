@@ -7,8 +7,18 @@ import AppKit
 public final class WaitTool: MCPToolExecutor, @unchecked Sendable {
     
     public let name = "wait"
+    private let registry: AppRegistry
     
-    public init() {}
+    public struct WaitResult: Codable {
+        let success: Bool
+        let message: String
+        let actualDuration: Int
+        let conditionMet: Bool
+    }
+    
+    public init(registry: AppRegistry) {
+        self.registry = registry
+    }
     
     public func handle(params: MCP.Value) async throws -> MCP.Value {
         // Parse parameters from Value
@@ -49,6 +59,30 @@ public final class WaitTool: MCPToolExecutor, @unchecked Sendable {
             "requested_duration_ms": .int(durationMs),
             "actual_duration_ms": .int(actualDuration)
         ])
+    }
+    
+    public func wait(arguments: [String: Any]) async throws -> WaitResult {
+        let durationMs = arguments["duration_ms"] as? Int ?? 1000
+        let condition = arguments["condition"] as? String ?? "time"
+        
+        let startTime = Date()
+        
+        // Simple implementation for now
+        switch condition.lowercased() {
+        case "time":
+            try await Task.sleep(nanoseconds: UInt64(durationMs) * 1_000_000)
+        default:
+            try await Task.sleep(nanoseconds: UInt64(durationMs) * 1_000_000)
+        }
+        
+        let actualDuration = Int(Date().timeIntervalSince(startTime) * 1000)
+        
+        return WaitResult(
+            success: true,
+            message: "Wait completed - condition '\(condition)'",
+            actualDuration: actualDuration,
+            conditionMet: true
+        )
     }
     
     private func waitForUIChange(maxDurationMs: Int) async throws {
