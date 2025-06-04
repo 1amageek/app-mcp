@@ -1,6 +1,9 @@
 .DS_Store
 /.build
+/.claude
+/.vscode
 /Packages
+/memory-bank
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json
