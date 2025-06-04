@@ -1,0 +1,191 @@
+# AppMCP Project Intelligence
+
+## Project Context
+This is AppMCP - a Swift Package that implements a Model Context Protocol (MCP) server for macOS GUI automation. The project enables AI systems to see, understand, and control macOS applications through standardized MCP resources and tools.
+
+## Critical Implementation Patterns
+
+### 1. Memory Bank First
+- ALWAYS read memory bank files at start of each session
+- Memory bank is the single source of truth for project state
+- Update memory bank when significant changes occur
+- Files: projectbrief.md, productContext.md, systemPatterns.md, techContext.md, activeContext.md, progress.md
+
+### 2. MCP Protocol Compliance
+- Must strictly follow Model Context Protocol specifications
+- Use swift-sdk v0.7.1+ for all MCP interactions
+- Resources return MCP.JSON, Tools accept MCP.Request
+- Never deviate from standard MCP patterns
+
+### 3. Permission-First Architecture
+- Every system operation MUST check TCC permissions first
+- Use AccessibilityIsProcessTrustedWithOptions for accessibility
+- Use CGPreflightScreenCaptureAccess for screen recording
+- Fail gracefully with clear error messages when permissions denied
+
+### 4. Swift 6 Concurrency Patterns
+- Use @MainActor for all UI-related operations (screenshots, accessibility, input)
+- Use Actor for thread-safe state management (permissions, caching)
+- Leverage async/await throughout
+- All protocols must be Sendable
+
+### 5. Protocol-Oriented Design
+```swift
+// Always use this pattern for extensibility
+public protocol MCPResourceProvider: Sendable {
+    var name: String { get }
+    func handle(request: MCP.Request) async throws -> MCP.JSON
+}
+
+public protocol MCPToolExecutor: Sendable {
+    var name: String { get }
+    func handle(request: MCP.Request) async throws -> MCP.JSON
+}
+```
+
+## Key Technical Constraints
+
+### Performance Requirements
+- Screenshot capture: < 100ms
+- Accessibility tree: < 200ms  
+- Mouse/keyboard actions: < 50ms
+- Total MCP response: < 300ms
+
+### Platform Requirements
+- macOS 15+ only
+- Swift 6.1+ with modern concurrency
+- Universal binary (Intel + Apple Silicon)
+- System permissions required
+
+### Architecture Requirements
+- Library + CLI binary distribution
+- Dependency injection for testability
+- Comprehensive error handling
+- Structured logging with os_log
+
+## Development Workflow Patterns
+
+### File Organization
+```
+Sources/AppMCP/           # Library (public API)
+├── MCPServer.swift       # Main server class
+├── Resources/            # Resource providers (@MainActor)
+├── Tools/                # Tool executors (@MainActor)  
+├── Permissions/          # TCC management (Actor)
+└── Logging/              # Logging utilities (Sendable)
+
+Sources/appmcpd/          # CLI binary
+└── main.swift            # Entry point with argument parsing
+```
+
+### Testing Strategy
+- Protocol-based mocking for unit tests
+- Process-based testing for CLI integration
+- Real system testing for UI automation
+- Performance benchmarking for latency targets
+
+### Error Handling Pattern
+```swift
+public enum MCPError: Error, Sendable {
+    case permissionDenied(String)
+    case systemError(String)
+    case invalidParameters(String)
+    case resourceUnavailable(String)
+}
+```
+
+## User Experience Patterns
+
+### Permission Flow
+1. Check current permission status
+2. If denied, show explanation dialog
+3. Guide user to System Preferences
+4. Re-check and proceed or fail gracefully
+
+### CLI Interface
+- Default to STDIO transport for MCP clients
+- Support --http for web-based integration
+- Comprehensive logging with --log-level
+- Tool whitelisting with --allow-tools
+
+## Quality Standards
+
+### Code Quality
+- All public APIs must be documented
+- SwiftLint compliance required
+- No compiler warnings allowed
+- Memory leak testing for long-running processes
+
+### Testing Requirements
+- 90%+ test coverage target
+- All MCP endpoints tested
+- Permission flows validated
+- Performance benchmarks included
+
+### Security Standards
+- Principle of least privilege
+- Audit logging for all actions
+- Input validation on all MCP requests
+- Sandboxed execution where possible
+
+## Common Pitfalls to Avoid
+
+### 1. Permission Assumptions
+- Never assume permissions are granted
+- Always check before system operations
+- Handle permission changes during runtime
+- Provide clear error messages for permission issues
+
+### 2. Threading Issues
+- UI operations must be on @MainActor
+- Don't block main thread with heavy operations
+- Use proper actor isolation
+- Avoid data races with Sendable types
+
+### 3. MCP Protocol Violations
+- Don't create custom MCP extensions
+- Follow exact JSON-RPC patterns
+- Use proper error codes and messages
+- Maintain protocol version compatibility
+
+### 4. Performance Degradation
+- Cache expensive operations (screenshots, AX trees)
+- Use lazy loading where appropriate
+- Monitor memory usage in long-running sessions
+- Profile critical paths regularly
+
+## Project Evolution Notes
+
+### Current Phase: Foundation
+- Focus on core architecture and protocols
+- Establish solid testing patterns early
+- Document all design decisions
+- Validate MCP SDK integration
+
+### Next Phase: Implementation
+- Start with screenshot resource (simplest)
+- Add accessibility tree resource
+- Implement mouse/keyboard tools
+- Build permission management system
+
+### Future Considerations
+- HTTP transport for web integration
+- Plugin architecture for extensibility
+- Advanced caching strategies
+- Enterprise security features
+
+## Success Metrics Tracking
+
+### Technical Metrics
+- Build success rate: 100%
+- Test coverage: Target 90%+
+- Performance: Meet latency targets
+- Memory usage: < 100MB working set
+
+### Integration Metrics
+- MCP client compatibility
+- Permission grant rates
+- Error rates in production
+- User satisfaction scores
+
+This file captures the essential patterns and intelligence for working effectively on the AppMCP project. Update as new patterns emerge or requirements change.

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(swift package show-dependencies:*)",
+      "Bash(swift test)",
+      "Bash(swift build:*)",
+      "Bash(ls:*)",
+      "Bash(.build/arm64-apple-macosx/debug/appmcpd --help)",
+      "Bash(sqlite3:*)",
+      "Bash(./appmcpd --list-capabilities)",
+      "Bash(./appmcpd --validate)",
+      "Bash(sw_vers)",
+      "Bash(swift test:*)",
+      "Bash(open:*)",
+      "Bash(./appmcpd list-capabilities)",
+      "Bash(python3:*)",
+      "Bash(swift:*)",
+      "Bash(osascript:*)",
+      "Bash(cp:*)"
+    ],
+    "deny": []
+  }
+}
