@@ -10,7 +10,7 @@ def test_list_resources():
     
     try:
         process = subprocess.Popen(
-            ['./appmcpd', '--stdio'],
+            ['swift', 'run', 'appmcpd'],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -28,17 +28,17 @@ public final class AppAXTreeProvider: MCPResourceProvider, @unchecked Sendable {
         let appElement: AXUIElement
         if case let .string(bundleId) = paramsDict["bundle_id"] {
             guard let element = try await appSelector.findApp(bundleId: bundleId) else {
-                throw MCPError.appNotFound("App with bundle ID '\(bundleId)' not found")
+                throw MCPError.appNotFound(bundleId: bundleId, name: nil, pid: nil)
             }
             appElement = element
         } else if case let .string(processName) = paramsDict["process_name"] {
             guard let element = try await appSelector.findApp(processName: processName) else {
-                throw MCPError.appNotFound("App with process name '\(processName)' not found")
+                throw MCPError.appNotFound(bundleId: nil, name: processName, pid: nil)
             }
             appElement = element
         } else if case let .int(pid) = paramsDict["pid"] {
             guard let element = try await appSelector.findApp(pid: pid_t(pid)) else {
-                throw MCPError.appNotFound("App with PID \(pid) not found")
+                throw MCPError.appNotFound(bundleId: nil, name: nil, pid: Int32(pid))
             }
             appElement = element
         } else {

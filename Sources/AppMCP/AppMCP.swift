@@ -3,6 +3,10 @@ import MCP
 @preconcurrency import ApplicationServices
 import AppKit
 
+// MARK: - Public API
+
+// AppMCPServer is now defined in AppMCPServer.swift and automatically available
+
 // MARK: - Core Protocols
 
 /// A protocol that defines the interface for MCP resource providers.
@@ -97,117 +101,7 @@ public protocol MCPToolExecutor: Sendable {
     func handle(params: MCP.Value) async throws -> MCP.Value
 }
 
-// MARK: - Error Types
-
-/// Standardized error types for AppMCP operations.
-///
-/// This enumeration defines the various error conditions that can occur during
-/// AppMCP operations, providing consistent error handling across all components.
-/// Each error case includes an associated message with additional context.
-///
-/// ## Topics
-///
-/// ### Permission Errors
-/// - ``permissionDenied(_:)``
-///
-/// ### System Errors
-/// - ``systemError(_:)``
-/// - ``resourceUnavailable(_:)``
-/// - ``appNotFound(_:)``
-/// - ``timeout(_:)``
-///
-/// ### Parameter Errors
-/// - ``invalidParameters(_:)``
-///
-/// ### Usage
-///
-/// ```swift
-/// do {
-///     try await performAutomation()
-/// } catch MCPError.permissionDenied(let message) {
-///     print("Permission error: \(message)")
-/// } catch MCPError.appNotFound(let message) {
-///     print("App not found: \(message)")
-/// }
-/// ```
-public enum MCPError: Swift.Error, Sendable {
-    /// Indicates that the operation was denied due to insufficient permissions.
-    ///
-    /// This error is typically thrown when:
-    /// - Accessibility permission is not granted for UI automation
-    /// - Screen Recording permission is not granted for screenshots
-    /// - The application lacks necessary TCC permissions
-    ///
-    /// - Parameter message: A descriptive message explaining the permission requirement
-    case permissionDenied(String)
-    
-    /// Indicates a low-level system error occurred.
-    ///
-    /// This error is thrown when macOS APIs return error codes or when
-    /// system-level operations fail unexpectedly.
-    ///
-    /// - Parameter message: A descriptive message explaining the system error
-    case systemError(String)
-    
-    /// Indicates that the provided parameters are invalid or malformed.
-    ///
-    /// This error is thrown when:
-    /// - Required parameters are missing from MCP requests
-    /// - Parameter values are outside acceptable ranges
-    /// - Parameter formats don't match expected schemas
-    ///
-    /// - Parameter message: A descriptive message explaining the parameter issue
-    case invalidParameters(String)
-    
-    /// Indicates that a requested resource is not available.
-    ///
-    /// This error is thrown when:
-    /// - A resource provider cannot access the requested data
-    /// - Network resources are unavailable
-    /// - File system resources cannot be read
-    ///
-    /// - Parameter message: A descriptive message explaining the unavailability
-    case resourceUnavailable(String)
-    
-    /// Indicates that the specified application could not be found.
-    ///
-    /// This error is thrown when:
-    /// - An application with the specified Bundle ID is not running
-    /// - A process with the specified name or PID doesn't exist
-    /// - Application discovery operations fail
-    ///
-    /// - Parameter message: A descriptive message including the search criteria
-    case appNotFound(String)
-    
-    /// Indicates that an operation timed out.
-    ///
-    /// This error is thrown when:
-    /// - UI automation operations take too long to complete
-    /// - Wait conditions are not met within the specified time limit
-    /// - Network operations exceed their timeout period
-    ///
-    /// - Parameter message: A descriptive message explaining the timeout
-    case timeout(String)
-}
-
-extension MCPError: LocalizedError {
-    public var errorDescription: String? {
-        switch self {
-        case .permissionDenied(let message):
-            return "Permission denied: \(message)"
-        case .systemError(let message):
-            return "System error: \(message)"
-        case .invalidParameters(let message):
-            return "Invalid parameters: \(message)"
-        case .resourceUnavailable(let message):
-            return "Resource unavailable: \(message)"
-        case .appNotFound(let message):
-            return "Application not found: \(message)"
-        case .timeout(let message):
-            return "Operation timed out: \(message)"
-        }
-    }
-}
+// Note: MCPError is now defined in Core/MCPError.swift
 
 // MARK: - App Information
 
@@ -340,7 +234,7 @@ public actor AppSelector: @unchecked Sendable {
     public func findApp(bundleId: String) async throws -> AXUIElement? {
         let runningApps = NSWorkspace.shared.runningApplications
         guard let app = runningApps.first(where: { $0.bundleIdentifier == bundleId }) else {
-            throw MCPError.appNotFound("App with bundle ID '\(bundleId)' not found")
+            throw MCPError.appNotFound(bundleId: bundleId, name: nil, pid: nil)
         }
         let pid = app.processIdentifier
         return AXUIElementCreateApplication(pid)
@@ -363,7 +257,7 @@ public actor AppSelector: @unchecked Sendable {
     public func findApp(processName: String) async throws -> AXUIElement? {
         let runningApps = NSWorkspace.shared.runningApplications
         guard let app = runningApps.first(where: { $0.localizedName == processName }) else {
-            throw MCPError.appNotFound("App with process name '\(processName)' not found")
+            throw MCPError.appNotFound(bundleId: nil, name: processName, pid: nil)
         }
         let pid = app.processIdentifier
         return AXUIElementCreateApplication(pid)
@@ -386,7 +280,7 @@ public actor AppSelector: @unchecked Sendable {
     public func findApp(pid: pid_t) async throws -> AXUIElement? {
         let runningApps = NSWorkspace.shared.runningApplications
         guard runningApps.contains(where: { $0.processIdentifier == pid }) else {
-            throw MCPError.appNotFound("App with PID \(pid) not found")
+            throw MCPError.appNotFound(bundleId: nil, name: nil, pid: pid)
         }
         return AXUIElementCreateApplication(pid)
     }
