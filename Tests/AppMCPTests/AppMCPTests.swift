@@ -168,7 +168,7 @@ class AppMCPTests: XCTestCase {
     // MARK: - Error Handling Tests
     
     func testHandleMissingAppErrors() async throws {
-        let error = MCPError.appNotFound("com.nonexistent.app")
+        let error = MCPError.appNotFound(bundleId: "com.nonexistent.app", name: nil, pid: nil)
         XCTAssertTrue(error.localizedDescription.contains("com.nonexistent.app"))
     }
     

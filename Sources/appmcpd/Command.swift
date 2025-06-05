@@ -35,7 +35,7 @@ struct AppMCPDaemon: AsyncParsableCommand {
         await initializeGUIEnvironment()
         
         // Create server
-        let server = AppMCPServer()
+        let server = await AppMCPServer()
         
         // Handle special commands
         if validate {
@@ -65,6 +65,20 @@ struct AppMCPDaemon: AsyncParsableCommand {
         do {
             // Start the server
             try await server.start(transport: transport)
+            
+            // Keep the server running indefinitely
+            print("✅ Server started successfully, waiting for requests...")
+            
+            // Create a task that runs forever to keep the process alive
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    // Run indefinitely
+                    while true {
+                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                    }
+                }
+            }
+            
         } catch {
             print("❌ Failed to start server: \(error)")
             throw ExitCode.failure

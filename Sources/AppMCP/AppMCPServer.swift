@@ -13,7 +13,7 @@ public class AppMCPServer: @unchecked Sendable {
     private let actionTools: ActionTools
     private let waitTool: WaitTool
     
-    public init() {
+    public init() async {
         self.registry = AppRegistry()
         self.tccManager = EnhancedTCCManager()
         self.coordinateConverter = CoordinateConverter()
@@ -40,18 +40,19 @@ public class AppMCPServer: @unchecked Sendable {
             )
         )
         
-        Task {
-            await setupResourceHandlers()
-            await setupToolHandlers()
-        }
+        // Setup handlers immediately after server creation
+        await setupResourceHandlers()
+        await setupToolHandlers()
     }
     
     // MARK: - Resource Handlers
     
     private func setupResourceHandlers() async {
+        print("🔧 Setting up ListResources handler...")
         // List Resources
         await server.withMethodHandler(ListResources.self) { _ in
-            ListResources.Result(resources: [
+            print("📋 ListResources handler called")
+            return ListResources.Result(resources: [
                 Resource(
                     name: "installed_applications",
                     uri: "appmcp://resources/installed_applications",
@@ -79,8 +80,10 @@ public class AppMCPServer: @unchecked Sendable {
             ])
         }
         
+        print("🔧 Setting up ReadResource handler...")
         // Read Resource
         await server.withMethodHandler(ReadResource.self) { [weak self] request in
+            print("📖 ReadResource handler called for URI: \(request.uri)")
             guard let self = self else {
                 throw MCPError.internalError("Server instance unavailable")
             }
@@ -88,25 +91,28 @@ public class AppMCPServer: @unchecked Sendable {
             let uri = request.uri
             let urlComponents = URLComponents(string: uri)
             
-            guard let scheme = urlComponents?.scheme, scheme == "appmcp",
-                  let path = urlComponents?.path else {
-                throw MCPError.invalidParameters("Invalid URI format: \(uri)")
+            guard let scheme = urlComponents?.scheme, scheme == "appmcp" else {
+                throw MCPError.invalidParameters("Invalid URI scheme: \(uri)")
             }
             
+            // URLComponents.path includes the leading slash
+            let path = urlComponents?.path ?? ""
+            print("📍 Parsed path: \(path)")
+            
             switch path {
-            case "/resources/installed_applications":
+            case "/resources/installed_applications", "/installed_applications":
                 let content = try await self.applicationResources.getInstalledApplications()
                 return ReadResource.Result(contents: [.text(content, uri: uri)])
                 
-            case "/resources/running_applications":
+            case "/resources/running_applications", "/running_applications":
                 let content = try await self.applicationResources.getRunningApplications()
                 return ReadResource.Result(contents: [.text(content, uri: uri)])
                 
-            case "/resources/accessible_applications":
+            case "/resources/accessible_applications", "/accessible_applications":
                 let content = try await self.applicationResources.getAccessibleApplications()
                 return ReadResource.Result(contents: [.text(content, uri: uri)])
                 
-            case "/resources/list_windows":
+            case "/resources/list_windows", "/list_windows":
                 let queryItems = urlComponents?.queryItems
                 guard let appHandle = queryItems?.first(where: { $0.name == "app_handle" })?.value else {
                     throw MCPError.invalidParameters("app_handle parameter required for list_windows")
