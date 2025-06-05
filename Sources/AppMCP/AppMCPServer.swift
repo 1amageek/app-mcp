@@ -56,25 +56,25 @@ public class AppMCPServer: @unchecked Sendable {
                 Resource(
                     name: "installed_applications",
                     uri: "appmcp://resources/installed_applications",
-                    description: "List of all installed .app bundles on the system",
+                    description: "Get all applications installed in /Applications folder. Returns app names and bundle IDs. Use this to see what apps exist on the system.",
                     mimeType: "application/json"
                 ),
                 Resource(
                     name: "running_applications", 
                     uri: "appmcp://resources/running_applications",
-                    description: "List of currently running applications",
+                    description: "Get a complete list of ALL currently running applications with their names, bundle IDs, PIDs, and window counts. Use this to see what apps are available.",
                     mimeType: "application/json"
                 ),
                 Resource(
                     name: "accessible_applications",
                     uri: "appmcp://resources/accessible_applications", 
-                    description: "List of applications with accessibility permissions and their windows",
+                    description: "Get running applications that can be controlled (have accessibility permissions). Shows which apps you can actually interact with and their windows.",
                     mimeType: "application/json"
                 ),
                 Resource(
                     name: "list_windows",
                     uri: "appmcp://resources/list_windows",
-                    description: "List all windows for a specific app handle (requires ?app_handle= parameter)",
+                    description: "List all windows of a specific app. Requires ?app_handle=ah_1234 parameter. Use this to see what windows an app has before targeting one.",
                     mimeType: "application/json"
                 )
             ])
@@ -134,21 +134,21 @@ public class AppMCPServer: @unchecked Sendable {
             ListTools.Result(tools: [
                 Tool(
                     name: "resolve_app",
-                    description: "Resolve application to app_handle by bundle ID, name, or PID",
+                    description: "Find a SPECIFIC application and get its handle. To list ALL running apps, use the 'running_applications' resource instead. This tool searches for ONE app by exact match.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "bundle_id": .object([
                                 "type": .string("string"),
-                                "description": .string("Application bundle identifier (e.g., com.apple.Safari)")
+                                "description": .string("Exact bundle identifier (e.g., 'com.apple.Safari'). No wildcards/regex.")
                             ]),
                             "process_name": .object([
                                 "type": .string("string"), 
-                                "description": .string("Process name to search for")
+                                "description": .string("Exact process name (e.g., 'Safari'). No wildcards/regex.")
                             ]),
                             "pid": .object([
                                 "type": .string("integer"),
-                                "description": .string("Process ID")
+                                "description": .string("Exact process ID number")
                             ])
                         ]),
                         "oneOf": .array([
@@ -160,21 +160,21 @@ public class AppMCPServer: @unchecked Sendable {
                 ),
                 Tool(
                     name: "resolve_window", 
-                    description: "Resolve window to window_handle within an app",
+                    description: "Find a specific window within an app and get its handle. Requires app_handle from resolve_app first. Use either title pattern OR index.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "app_handle": .object([
                                 "type": .string("string"),
-                                "description": .string("App handle from resolve_app")
+                                "description": .string("App handle obtained from resolve_app (e.g., 'ah_1234')")
                             ]),
                             "title_regex": .object([
                                 "type": .string("string"),
-                                "description": .string("Regular expression to match window title")
+                                "description": .string("Regular expression to match window title. Use '.*' to match any title.")
                             ]),
                             "index": .object([
                                 "type": .string("integer"),
-                                "description": .string("Zero-based window index")
+                                "description": .string("Window number (0 for first window, 1 for second, etc.)")
                             ])
                         ]),
                         "required": .array([.string("app_handle")]),
@@ -186,27 +186,27 @@ public class AppMCPServer: @unchecked Sendable {
                 ),
                 Tool(
                     name: "mouse_click",
-                    description: "Perform mouse click at specified coordinates", 
+                    description: "Click the mouse at specific coordinates in a window. Use this to click buttons, links, or any UI element. Returns success/failure. Requires window_handle first.", 
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "window_handle": .object([
                                 "type": .string("string"),
-                                "description": .string("Target window handle")
+                                "description": .string("Window handle from resolve_window (e.g., 'wh_5678')")
                             ]),
                             "x": .object([
                                 "type": .string("number"),
-                                "description": .string("X coordinate")
+                                "description": .string("X coordinate in pixels from left edge of reference")
                             ]),
                             "y": .object([
                                 "type": .string("number"), 
-                                "description": .string("Y coordinate")
+                                "description": .string("Y coordinate in pixels from top edge of reference")
                             ]),
                             "coordinate_space": .object([
                                 "type": .string("string"),
                                 "enum": .array([.string("window"), .string("global"), .string("screen")]),
                                 "default": .string("window"),
-                                "description": .string("Coordinate system reference")
+                                "description": .string("Where coordinates are measured from: 'window'=relative to window, 'global'=absolute screen position, 'screen'=relative to specific display")
                             ]),
                             "button": .object([
                                 "type": .string("string"),
@@ -228,17 +228,17 @@ public class AppMCPServer: @unchecked Sendable {
                 ),
                 Tool(
                     name: "type_text",
-                    description: "Type text into the focused element",
+                    description: "Type text into the currently focused element. Use after clicking on a text field or input area. Simulates keyboard typing character by character. Returns success/failure.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "window_handle": .object([
                                 "type": .string("string"),
-                                "description": .string("Target window handle")
+                                "description": .string("Window handle where text should be typed")
                             ]),
                             "text": .object([
                                 "type": .string("string"),
-                                "description": .string("Text to type")
+                                "description": .string("Text to type (will be typed as if by keyboard)")
                             ])
                         ]),
                         "required": .array([.string("window_handle"), .string("text")])
@@ -246,30 +246,35 @@ public class AppMCPServer: @unchecked Sendable {
                 ),
                 Tool(
                     name: "perform_gesture",
-                    description: "Perform gesture on window (swipe, pinch, rotate)",
+                    description: "Perform trackpad gestures like swipe to navigate, pinch to zoom, or rotate. Use for scrolling, zooming maps/images, or navigating between pages. Returns success/failure.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "window_handle": .object([
                                 "type": .string("string"),
-                                "description": .string("Target window handle")
+                                "description": .string("Window handle where gesture should be performed")
                             ]),
                             "gesture_type": .object([
                                 "type": .string("string"),
-                                "enum": .array([.string("swipe"), .string("pinch"), .string("rotate"), .string("smart_magnify")])
+                                "enum": .array([.string("swipe"), .string("pinch"), .string("rotate"), .string("smart_magnify")]),
+                                "description": .string("Type of gesture: swipe=scroll/navigate, pinch=zoom in/out, rotate=rotate content, smart_magnify=double-tap zoom")
                             ]),
                             "direction": .object([
                                 "type": .string("string"),
-                                "enum": .array([.string("left"), .string("right"), .string("up"), .string("down")])
+                                "enum": .array([.string("left"), .string("right"), .string("up"), .string("down")]),
+                                "description": .string("Direction for swipe gestures (required for swipe)")
                             ]),
                             "scale": .object([
-                                "type": .string("number")
+                                "type": .string("number"),
+                                "description": .string("Zoom factor for pinch (required for pinch). >1 zooms in, <1 zooms out")
                             ]),
                             "angle_deg": .object([
-                                "type": .string("number")
+                                "type": .string("number"),
+                                "description": .string("Rotation angle in degrees (required for rotate). Positive=clockwise")
                             ]),
                             "distance_px": .object([
-                                "type": .string("integer")
+                                "type": .string("integer"),
+                                "description": .string("Distance to swipe in pixels (optional for swipe, default=100)")
                             ]),
                             "duration_ms": .object([
                                 "type": .string("integer"),
@@ -287,28 +292,30 @@ public class AppMCPServer: @unchecked Sendable {
                 ),
                 Tool(
                     name: "wait",
-                    description: "Wait for specified condition or duration",
+                    description: "Pause execution to let UI update or wait for conditions. ALWAYS use after clicks/typing to let the UI respond. Returns when condition is met or timeout.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
                             "condition": .object([
                                 "type": .string("string"),
                                 "enum": .array([.string("time"), .string("ui_change"), .string("window_appear"), .string("window_disappear"), .string("gesture_complete")]),
-                                "default": .string("time")
+                                "default": .string("time"),
+                                "description": .string("What to wait for. 'time'=fixed delay (most common), 'ui_change'=wait for UI to update, others for specific events")
                             ]),
                             "duration_ms": .object([
                                 "type": .string("integer"),
                                 "minimum": .int(1),
                                 "maximum": .int(30000),
-                                "default": .int(1000)
+                                "default": .int(1000),
+                                "description": .string("How long to wait in milliseconds (1000 = 1 second). Required for all conditions.")
                             ]),
                             "window_handle": .object([
                                 "type": .string("string"),
-                                "description": .string("Window to monitor for conditions")
+                                "description": .string("Window to monitor (required for ui_change, window_appear, window_disappear)")
                             ]),
                             "title_regex": .object([
                                 "type": .string("string"),
-                                "description": .string("Window title pattern for appear/disappear conditions")
+                                "description": .string("Window title pattern to watch for (optional for window_appear/disappear)")
                             ])
                         ]),
                         "required": .array([.string("duration_ms")])

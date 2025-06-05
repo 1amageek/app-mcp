@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: How to Use AppMCP Tools Correctly
+
+### Listing Available Applications
+When asked to "list available apps" or "show running applications":
+- **DO NOT** use `resolve_app` with wildcards/regex (e.g., `".*"`) - it doesn't support patterns
+- **DO** use the `running_applications` resource: `appmcp://resources/running_applications`
+- This returns ALL running apps with names, bundle IDs, PIDs, and window counts
+
+### Tools vs Resources
+- **Resources**: Use to GET information (list apps, check windows)
+- **Tools**: Use to PERFORM actions (click, type, find specific app)
+
 ## Commands
 
 ### Build
