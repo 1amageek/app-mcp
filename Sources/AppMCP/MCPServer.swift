@@ -1,106 +1,21 @@
 import Foundation
 import MCP
-@preconcurrency import ApplicationServices
+import AppPilot
 import AppKit
 
-/// The central coordinator for Model Context Protocol operations in AppMCP.
-///
-/// MCPServer serves as the main entry point for AppMCP functionality, implementing
-/// the MCP v0.7.1 specification for macOS GUI automation. It coordinates between
-/// resource providers (data extraction) and tool executors (action execution),
-/// while managing permissions, application discovery, and MCP protocol communication.
-///
-/// The server handles JSON-RPC communication with MCP clients (typically AI models)
-/// and routes requests to appropriate handlers based on the MCP protocol specification.
-///
-/// ## Topics
-///
-/// ### Creating a Server
-/// - ``init()``
-/// - ``init(resources:tools:)``
-/// - ``weatherAppPoC()``
-///
-/// ### Server Lifecycle
-/// - ``start()``
-/// - ``stop()``
-/// - ``waitUntilCompleted()``
-///
-/// ### Configuration and Validation
-/// - ``validateConfiguration()``
-/// - ``getResourceInfo()``
-/// - ``getToolInfo()``
-///
-/// ### Usage
-///
-/// ```swift
-/// // Create server with default configuration
-/// let server = MCPServer()
-///
-/// // Validate configuration
-/// try await server.validateConfiguration()
-///
-/// // Start the server
-/// try await server.start()
-/// ```
-///
-/// ### Weather App Example
-///
-/// ```swift
-/// // Create server optimized for Weather app automation
-/// let server = MCPServer.weatherAppPoC()
-/// try await server.start()
-/// ```
-public final class MCPServer: @unchecked Sendable {
+/// Modern MCP Server for macOS UI automation powered by AppPilot
+public final class AppMCPServer: @unchecked Sendable {
     
     private let server: MCP.Server
-    private let resources: [any MCPResourceProvider]
-    private let tools: [any MCPToolExecutor]
-    private let appSelector: AppSelector
-    private let tccManager: TCCManager
+    private let pilot: AppPilot
     
     public init() {
-        self.appSelector = AppSelector()
-        self.tccManager = TCCManager()
-        
-        // Initialize resources
-        self.resources = [
-            RunningAppsProvider(appSelector: appSelector),
-            AppScreenshotProvider(appSelector: appSelector, tccManager: tccManager),
-            AppAXTreeProvider(appSelector: appSelector, tccManager: tccManager)
-        ]
-        
-        // Initialize tools
-        // Note: Legacy MCPServer - using dummy registry for WaitTool
-        let dummyRegistry = AppRegistry()
-        self.tools = [
-            MouseClickTool(appSelector: appSelector, tccManager: tccManager),
-            KeyboardTool(appSelector: appSelector, tccManager: tccManager),
-            WaitTool(registry: dummyRegistry)
-        ]
-        
-        // Create MCP server
-        self.server = MCP.Server(
-            name: "AppMCP",
-            version: "0.1.0",
-            capabilities: .init(
-                resources: .init(subscribe: false, listChanged: false),
-                tools: .init(listChanged: false)
-            ),
-            configuration: .default
-        )
-        
-        Task { await setupHandlers() }
-    }
-    
-    public init(resources: [any MCPResourceProvider], tools: [any MCPToolExecutor]) {
-        self.appSelector = AppSelector()
-        self.tccManager = TCCManager()
-        self.resources = resources
-        self.tools = tools
+        // Initialize AppPilot with default drivers
+        self.pilot = AppPilot()
         
         self.server = MCP.Server(
             name: "AppMCP",
-            version: "0.1.0",
+            version: AppMCP.version,
             capabilities: .init(
                 resources: .init(subscribe: false, listChanged: false),
                 tools: .init(listChanged: false)
@@ -111,291 +26,536 @@ public final class MCPServer: @unchecked Sendable {
     }
     
     private func setupHandlers() async {
-        // Set up tools handlers
+        await setupToolHandlers()
+        await setupResourceHandlers()
+    }
+    
+    // MARK: - Tool Handlers
+    
+    private func setupToolHandlers() async {
         await server.withMethodHandler(ListTools.self) { _ in
-            let toolDescriptions = self.tools.map { tool in
+            return ListTools.Result(tools: [
                 MCP.Tool(
-                    name: tool.name,
-                    description: self.getToolDescription(tool.name)
+                    name: "automation",
+                    description: "Essential automation actions for macOS applications",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "action": [
+                                "type": "string",
+                                "enum": ["click", "type", "drag", "scroll", "wait", "find", "screenshot"],
+                                "description": "Action to perform"
+                            ],
+                            "appName": [
+                                "type": "string", 
+                                "description": "Target application name (e.g., 'Calculator', 'TextEdit')"
+                            ],
+                            "bundleID": [
+                                "type": "string", 
+                                "description": "Target application bundle ID (e.g., 'com.apple.calculator')"
+                            ],
+                            "window": [
+                                "type": ["string", "number"],
+                                "description": "Target window (title or index, optional for some actions)"
+                            ],
+                            "element": [
+                                "type": "object",
+                                "properties": [
+                                    "role": ["type": "string", "description": "UI element role (AXButton, AXTextField, etc.)"],
+                                    "title": ["type": "string", "description": "Element title or label"],
+                                    "identifier": ["type": "string", "description": "Element accessibility identifier"]
+                                ],
+                                "description": "Target UI element (for click, type, find actions)"
+                            ],
+                            "coordinates": [
+                                "type": "object",
+                                "properties": [
+                                    "x": ["type": "number", "description": "X coordinate"],
+                                    "y": ["type": "number", "description": "Y coordinate"]
+                                ],
+                                "description": "Screen coordinates (fallback when element not available)"
+                            ],
+                            "text": [
+                                "type": "string",
+                                "description": "Text to type (for type action)"
+                            ],
+                            "startPoint": [
+                                "type": "object",
+                                "properties": [
+                                    "x": ["type": "number", "description": "Start X coordinate"],
+                                    "y": ["type": "number", "description": "Start Y coordinate"]
+                                ],
+                                "description": "Start point for drag action"
+                            ],
+                            "endPoint": [
+                                "type": "object",
+                                "properties": [
+                                    "x": ["type": "number", "description": "End X coordinate"],
+                                    "y": ["type": "number", "description": "End Y coordinate"]
+                                ],
+                                "description": "End point for drag action"
+                            ],
+                            "deltaX": [
+                                "type": "number",
+                                "description": "Horizontal scroll amount (positive = right, negative = left)"
+                            ],
+                            "deltaY": [
+                                "type": "number",
+                                "description": "Vertical scroll amount (positive = down, negative = up)"
+                            ],
+                            "duration": [
+                                "type": "number",
+                                "description": "Duration in seconds (for wait action, default: 1.0)"
+                            ]
+                        ],
+                        "required": ["action"]
+                    ]
                 )
-            }
-            return ListTools.Result(tools: toolDescriptions)
+            ])
         }
         
         await server.withMethodHandler(CallTool.self) { params in
-            guard let tool = self.tools.first(where: { $0.name == params.name }) else {
+            guard params.name == "automation" else {
                 return CallTool.Result(
                     content: [.text("Unknown tool: \(params.name)")],
                     isError: true
                 )
             }
             
-            do {
-                let arguments = params.arguments ?? [:]
-                let result = try await tool.handle(params: MCP.Value.object(arguments))
-                let jsonString = self.valueToJsonString(result)
-                return CallTool.Result(content: [.text(jsonString)])
-            } catch {
-                return CallTool.Result(
-                    content: [.text("Tool error: \(error.localizedDescription)")],
-                    isError: true
-                )
+            return await self.handleAutomation(params.arguments ?? [:])
+        }
+    }
+    
+    private func handleAutomation(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            guard let actionValue = arguments["action"],
+                  case .string(let action) = actionValue else {
+                throw AppMCPError.invalidParameters("Missing 'action' parameter")
+            }
+            
+            let result = try await performAction(action, arguments: arguments)
+            return CallTool.Result(content: [.text(result)])
+            
+        } catch {
+            return CallTool.Result(
+                content: [.text("Error: \(error.localizedDescription)")],
+                isError: true
+            )
+        }
+    }
+    
+    private func performAction(_ action: String, arguments: [String: MCP.Value]) async throws -> String {
+        switch action {
+        case "click":
+            return try await performClick(arguments)
+        case "type":
+            return try await performType(arguments)
+        case "drag":
+            return try await performDrag(arguments)
+        case "scroll":
+            return try await performScroll(arguments)
+        case "wait":
+            return try await performWait(arguments)
+        case "find":
+            return try await performFind(arguments)
+        case "screenshot":
+            return try await performScreenshot(arguments)
+        default:
+            throw AppMCPError.invalidParameters("Unknown action: \(action)")
+        }
+    }
+    
+    // MARK: - Action Implementations
+    
+    private func performClick(_ arguments: [String: MCP.Value]) async throws -> String {
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        if let elementValue = arguments["element"] {
+            // Element-based click
+            let element = try await findElement(in: window, using: elementValue)
+            _ = try await pilot.clickElement(element, in: window)
+            return "Clicked element \(element.role.rawValue) '\(element.title ?? element.id)' at (\(element.centerPoint.x), \(element.centerPoint.y))"
+        } else if case .object(let coords) = arguments["coordinates"],
+                  case .double(let x) = coords["x"],
+                  case .double(let y) = coords["y"] {
+            // Coordinate-based click
+            let point = Point(x: x, y: y)
+            _ = try await pilot.click(window: window, at: point)
+            return "Clicked at coordinates (\(x), \(y))"
+        } else {
+            throw AppMCPError.invalidParameters("Missing 'element' or 'coordinates' parameter for click action")
+        }
+    }
+    
+    private func performType(_ arguments: [String: MCP.Value]) async throws -> String {
+        guard case .string(let text) = arguments["text"] else {
+            throw AppMCPError.invalidParameters("Missing 'text' parameter")
+        }
+        
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        if let elementValue = arguments["element"] {
+            // Type into specific element
+            let element = try await findElement(in: window, using: elementValue)
+            _ = try await pilot.typeIntoElement(element, text: text, in: window)
+            return "Typed '\(text)' into \(element.role.rawValue) '\(element.title ?? element.id)'"
+        } else {
+            // Type into focused element with window context
+            _ = try await pilot.type(text, window: window)
+            return "Typed '\(text)' into focused element"
+        }
+    }
+    
+    private func performDrag(_ arguments: [String: MCP.Value]) async throws -> String {
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        guard case .object(let startCoords) = arguments["startPoint"],
+              case .double(let startX) = startCoords["x"],
+              case .double(let startY) = startCoords["y"],
+              case .object(let endCoords) = arguments["endPoint"],
+              case .double(let endX) = endCoords["x"],
+              case .double(let endY) = endCoords["y"] else {
+            throw AppMCPError.invalidParameters("Missing 'startPoint' and 'endPoint' parameters for drag action")
+        }
+        
+        let startPoint = Point(x: startX, y: startY)
+        let endPoint = Point(x: endX, y: endY)
+        
+        let duration: TimeInterval
+        if case .double(let d) = arguments["duration"] {
+            duration = d
+        } else {
+            duration = 1.0
+        }
+        
+        _ = try await pilot.drag(from: startPoint, to: endPoint, duration: duration, window: window)
+        return "Dragged from (\(startX), \(startY)) to (\(endX), \(endY)) over \(duration) seconds"
+    }
+    
+    private func performScroll(_ arguments: [String: MCP.Value]) async throws -> String {
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        let deltaX: Double
+        if case .double(let dx) = arguments["deltaX"] {
+            deltaX = dx
+        } else if case .int(let dx) = arguments["deltaX"] {
+            deltaX = Double(dx)
+        } else {
+            deltaX = 0.0
+        }
+        
+        let deltaY: Double
+        if case .double(let dy) = arguments["deltaY"] {
+            deltaY = dy
+        } else if case .int(let dy) = arguments["deltaY"] {
+            deltaY = Double(dy)
+        } else {
+            deltaY = 0.0
+        }
+        
+        // Get scroll position - use window center if no coordinates specified
+        let point: Point
+        if case .object(let coords) = arguments["coordinates"],
+           case .double(let x) = coords["x"],
+           case .double(let y) = coords["y"] {
+            point = Point(x: x, y: y)
+        } else {
+            // Use window center for scroll
+            let windows = try await pilot.listWindows(app: try await resolveApp(arguments))
+            if let windowInfo = windows.first(where: { $0.id == window }) {
+                let bounds = windowInfo.bounds
+                point = Point(x: bounds.midX, y: bounds.midY)
+            } else {
+                point = Point(x: 400.0, y: 400.0) // Default center
             }
         }
         
-        // Set up resources handlers
+        // Use AppPilot's safe scroll method with window context
+        _ = try await pilot.scroll(deltaX: deltaX, deltaY: deltaY, at: point, window: window)
+        
+        return "Scrolled deltaX: \(deltaX), deltaY: \(deltaY) at (\(point.x), \(point.y))"
+    }
+    
+    private func performWait(_ arguments: [String: MCP.Value]) async throws -> String {
+        let duration: Double
+        if case .double(let d) = arguments["duration"] {
+            duration = d
+        } else if case .int(let i) = arguments["duration"] {
+            duration = Double(i)
+        } else {
+            duration = 1.0 // Default 1 second
+        }
+        
+        try await pilot.wait(.time(seconds: duration))
+        return "Waited \(duration) seconds"
+    }
+    
+    private func performFind(_ arguments: [String: MCP.Value]) async throws -> String {
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        if let elementValue = arguments["element"] {
+            // Find specific element
+            let element = try await findElement(in: window, using: elementValue)
+            return "Found element: \(element.role.rawValue) '\(element.title ?? element.id)' at (\(element.centerPoint.x), \(element.centerPoint.y))"
+        } else {
+            // List all elements
+            let elements = try await pilot.findElements(in: window)
+            let summary = elements.prefix(10).map { "\($0.role.rawValue) '\($0.title ?? $0.id)'" }.joined(separator: ", ")
+            return "Found \(elements.count) elements: \(summary)\(elements.count > 10 ? "..." : "")"
+        }
+    }
+    
+    private func performScreenshot(_ arguments: [String: MCP.Value]) async throws -> String {
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        // Use AppPilot's screenshot capability
+        let cgImage = try await pilot.capture(window: window)
+        
+        // Convert CGImage to PNG data
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw AppMCPError.systemError("Failed to convert screenshot to PNG")
+        }
+        
+        return "data:image/png;base64,\(pngData.base64EncodedString())"
+    }
+    
+    // MARK: - Resource Handlers
+    
+    private func setupResourceHandlers() async {
         await server.withMethodHandler(ListResources.self) { _ in
-            let resourceDescriptions = self.resources.map { resource in
+            return ListResources.Result(resources: [
                 MCP.Resource(
-                    name: resource.name,
-                    uri: "app://\(resource.name)",
-                    description: self.getResourceDescription(resource.name),
+                    name: "running_applications",
+                    uri: "appmcp://resources/running_applications",
+                    description: "List of all running applications with metadata",
+                    mimeType: "application/json"
+                ),
+                MCP.Resource(
+                    name: "application_windows",
+                    uri: "appmcp://resources/application_windows",
+                    description: "All application windows with bounds and visibility info",
                     mimeType: "application/json"
                 )
-            }
-            return ListResources.Result(resources: resourceDescriptions)
+            ])
         }
         
         await server.withMethodHandler(ReadResource.self) { params in
-            print("🔍 ReadResource handler called with URI: \(params.uri)")
-            let resourceName = String(params.uri.dropFirst(6)) // Remove "app://" prefix
-            print("🔍 Extracted resource name: '\(resourceName)'")
-            guard let resource = self.resources.first(where: { $0.name == resourceName }) else {
-                print("❌ Resource '\(resourceName)' not found in: \(self.resources.map { $0.name })")
-                throw MCPError.invalidParameters("Unknown resource: \(resourceName)")
-            }
-            print("✅ Found resource: \(resource.name)")
-            
-            do {
-                // For now, hardcode Weather app parameters for testing
-                var resourceParams: [String: MCP.Value] = [:]
-                if resourceName == "app_screenshot" {
-                    resourceParams["bundle_id"] = .string("com.apple.weather")
-                } else if resourceName == "app_accessibility_tree" {
-                    resourceParams["bundle_id"] = .string("com.apple.weather")
-                }
-                
-                print("🔍 MCPServer calling resource '\(resourceName)' with params: \(resourceParams)")
-                let result = try await resource.handle(params: .object(resourceParams))
-                let jsonString = self.valueToJsonString(result)
-                return ReadResource.Result(contents: [
-                    .text(jsonString, uri: params.uri, mimeType: "application/json")
-                ])
-            } catch {
-                throw MCPError.systemError("Resource error: \(error.localizedDescription)")
-            }
+            return await self.handleResource(uri: params.uri)
         }
     }
     
-    /// Start the MCP server with STDIO transport
+    private func handleResource(uri: String) async -> ReadResource.Result {
+        do {
+            let content: String
+            
+            switch uri {
+            case "appmcp://resources/running_applications":
+                content = try await getApplications()
+            case "appmcp://resources/application_windows":
+                content = try await getWindows()
+            default:
+                throw AppMCPError.invalidParameters("Unknown resource: \(uri)")
+            }
+            
+            return ReadResource.Result(contents: [
+                .text(content, uri: uri, mimeType: "application/json")
+            ])
+            
+        } catch {
+            return ReadResource.Result(contents: [
+                .text("{\"error\": \"\(error.localizedDescription)\"}", uri: uri, mimeType: "application/json")
+            ])
+        }
+    }
+    
+    private func getApplications() async throws -> String {
+        // Use AppPilot to get real running applications
+        let apps = try await pilot.listApplications()
+        
+        let appData = apps.map { app in
+            [
+                "name": app.name,
+                "bundleID": app.bundleIdentifier ?? "unknown",
+                "handle": app.id.id,
+                "isActive": app.isActive
+            ] as [String: Any]
+        }
+        
+        let data = try JSONSerialization.data(withJSONObject: ["applications": appData])
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+    
+    private func getWindows() async throws -> String {
+        // Get windows from all accessible applications
+        let apps = try await pilot.listApplications()
+        var allWindows: [[String: Any]] = []
+        
+        for app in apps {
+            do {
+                let windows = try await pilot.listWindows(app: app.id)
+                let windowData = windows.map { window in
+                    [
+                        "title": window.title ?? "Untitled",
+                        "handle": window.id.id,
+                        "app": app.name,
+                        "appHandle": app.id.id,
+                        "bounds": [
+                            "x": window.bounds.origin.x,
+                            "y": window.bounds.origin.y,
+                            "width": window.bounds.size.width,
+                            "height": window.bounds.size.height
+                        ],
+                        "isVisible": window.isVisible,
+                        "isMain": window.isMain
+                    ] as [String: Any]
+                }
+                allWindows.append(contentsOf: windowData)
+            } catch {
+                // Skip apps that can't be queried (permission issues)
+                continue
+            }
+        }
+        
+        let data = try JSONSerialization.data(withJSONObject: ["windows": allWindows])
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func resolveApp(_ arguments: [String: MCP.Value]) async throws -> AppHandle {
+        // Try bundle ID first (more specific)
+        if case .string(let bundleID) = arguments["bundleID"] {
+            return try await pilot.findApplication(bundleId: bundleID)
+        }
+        
+        // Then try app name
+        if case .string(let appName) = arguments["appName"] {
+            return try await pilot.findApplication(name: appName)
+        }
+        
+        throw AppMCPError.invalidParameters("Missing 'appName' or 'bundleID' parameter")
+    }
+    
+    private func resolveAppAndWindow(_ arguments: [String: MCP.Value]) async throws -> (AppHandle, WindowHandle) {
+        // Get application
+        let app = try await resolveApp(arguments)
+        
+        // Get window (optional for some actions)
+        let window: WindowHandle
+        if case .string(let windowTitle) = arguments["window"] {
+            guard let foundWindow = try await pilot.findWindow(app: app, title: windowTitle) else {
+                throw AppMCPError.windowNotFound("Window with title '\(windowTitle)' not found")
+            }
+            window = foundWindow
+        } else if case .int(let index) = arguments["window"] {
+            guard let foundWindow = try await pilot.findWindow(app: app, index: index) else {
+                throw AppMCPError.windowNotFound("Window at index \(index) not found")
+            }
+            window = foundWindow
+        } else {
+            // Default to first window
+            guard let foundWindow = try await pilot.findWindow(app: app, index: 0) else {
+                throw AppMCPError.windowNotFound("No windows found for application")
+            }
+            window = foundWindow
+        }
+        
+        return (app, window)
+    }
+    
+    private func findElement(in window: WindowHandle, using elementValue: MCP.Value?) async throws -> UIElement {
+        guard case .object(let elementParams) = elementValue else {
+            throw AppMCPError.invalidParameters("Missing element parameters")
+        }
+        
+        // Extract search criteria
+        let role: ElementRole?
+        if case .string(let roleStr) = elementParams["role"] {
+            role = ElementRole(rawValue: roleStr) ?? ElementRole.allCases.first { $0.rawValue.lowercased().contains(roleStr.lowercased()) }
+        } else {
+            role = nil
+        }
+        
+        let title: String?
+        if case .string(let titleStr) = elementParams["title"] {
+            title = titleStr
+        } else {
+            title = nil
+        }
+        
+        let identifier: String?
+        if case .string(let idStr) = elementParams["identifier"] {
+            identifier = idStr
+        } else {
+            identifier = nil
+        }
+        
+        // Use AppPilot's element finding capabilities
+        if let role = role, let title = title {
+            // Find specific element by role and title
+            return try await pilot.findElement(in: window, role: role, title: title)
+        } else {
+            // Find elements by criteria and return first match
+            let elements = try await pilot.findElements(in: window, role: role, title: title, identifier: identifier)
+            guard let element = elements.first else {
+                let criteria = [role?.rawValue, title, identifier].compactMap { $0 }.joined(separator: ", ")
+                throw AppMCPError.elementNotFound("No element found matching criteria: \(criteria)")
+            }
+            return element
+        }
+    }
+    
+    // MARK: - Server Lifecycle
+    
     public func start() async throws {
-        // Check permissions before starting
-        await checkInitialPermissions()
+        print("🚀 AppMCP Server starting...")
+        print("   Version: \(AppMCP.version)")
+        print("   MCP Protocol: \(AppMCP.mcpVersion)")
+        print("   Powered by: AppPilot")
+        print("   Essential automation actions available")
         
         let transport = StdioTransport()
         try await server.start(transport: transport)
-        
-        // Keep the server running indefinitely
         await server.waitUntilCompleted()
     }
     
-    /// Stop the server
     public func stop() async {
         await server.stop()
     }
-    
-    /// Wait until the server completes
-    public func waitUntilCompleted() async {
-        await server.waitUntilCompleted()
-    }
-    
-    /// Check initial permissions and provide guidance if needed
-    @MainActor
-    private func checkInitialPermissions() async {
-        let permissionStatus = await tccManager.getPermissionStatus()
-        
-        print("🔍 Permission Debug Info:")
-        print("   • Accessibility: \(permissionStatus["accessibility"]?.description ?? "unknown")")
-        print("   • Screen Recording: \(permissionStatus["screenRecording"]?.description ?? "unknown")")
-        
-        var missingPermissions: [String] = []
-        
-        if permissionStatus["accessibility"] != .granted {
-            missingPermissions.append("Accessibility")
-        }
-        
-        if permissionStatus["screenRecording"] != .granted {
-            missingPermissions.append("Screen Recording")
-        }
-        
-        if !missingPermissions.isEmpty {
-            print("⚠️  AppMCP requires the following permissions:")
-            for permission in missingPermissions {
-                print("   • \(permission)")
-            }
-            print("\nPlease grant these permissions in System Preferences > Privacy & Security")
-            print("The server will continue to run, but some features may not work until permissions are granted.\n")
-        } else {
-            print("✅ All required permissions are granted")
-        }
-    }
-    
-    /// Get tool description based on tool name
-    private func getToolDescription(_ name: String) -> String {
-        switch name {
-        case "mouse_click":
-            return "Click at specified screen coordinates"
-        case "type_text":
-            return "Type text using keyboard input"
-        case "wait":
-            return "Wait for a specified duration or condition"
-        default:
-            return "Unknown tool"
-        }
-    }
-    
-    /// Get tool input schema based on tool name
-    private func getToolInputSchema(_ name: String) -> [String: Any] {
-        switch name {
-        case "mouse_click":
-            return [
-                "type": "object",
-                "properties": [
-                    "x": ["type": "number", "description": "X coordinate"],
-                    "y": ["type": "number", "description": "Y coordinate"],
-                    "button": ["type": "string", "description": "Mouse button (left, right, center)"],
-                    "click_count": ["type": "integer", "description": "Number of clicks"]
-                ],
-                "required": ["x", "y"]
-            ]
-        case "type_text":
-            return [
-                "type": "object",
-                "properties": [
-                    "text": ["type": "string", "description": "Text to type"],
-                    "target_app": [
-                        "type": "object",
-                        "properties": [
-                            "bundle_id": ["type": "string", "description": "Bundle ID of target app"],
-                            "process_name": ["type": "string", "description": "Process name of target app"]
-                        ]
-                    ]
-                ],
-                "required": ["text"]
-            ]
-        case "wait":
-            return [
-                "type": "object",
-                "properties": [
-                    "duration_ms": ["type": "integer", "description": "Duration in milliseconds"],
-                    "condition": ["type": "string", "description": "Wait condition (time, ui_change)"]
-                ]
-            ]
-        default:
-            return ["type": "object", "properties": [:]]
-        }
-    }
-    
-    /// Get resource description based on resource name
-    private func getResourceDescription(_ name: String) -> String {
-        switch name {
-        case "running_applications":
-            return "List of currently running applications"
-        case "app_screenshot":
-            return "Screenshot of specified application"
-        case "app_accessibility_tree":
-            return "Accessibility tree of specified application"
-        default:
-            return "Unknown resource"
-        }
-    }
-    
-    /// Convert MCP.Value to JSON string
-    private func valueToJsonString(_ value: MCP.Value) -> String {
-        do {
-            let data = try JSONSerialization.data(withJSONObject: valueToAny(value))
-            return String(data: data, encoding: .utf8) ?? "{}"
-        } catch {
-            return "{\"error\": \"Failed to serialize value\"}"
-        }
-    }
-    
-    /// Convert MCP.Value to Any for JSON serialization
-    private func valueToAny(_ value: MCP.Value) -> Any {
-        switch value {
-        case .null:
-            return NSNull()
-        case .bool(let bool):
-            return bool
-        case .int(let int):
-            return int
-        case .double(let double):
-            return double
-        case .string(let string):
-            return string
-        case .data(_, let data):
-            return data.base64EncodedString()
-        case .array(let array):
-            return array.map { valueToAny($0) }
-        case .object(let object):
-            var result: [String: Any] = [:]
-            for (key, value) in object {
-                result[key] = valueToAny(value)
-            }
-            return result
-        }
-    }
-    
-    /// Get information about available resources
-    public func getResourceInfo() -> [String: String] {
-        var info: [String: String] = [:]
-        for resource in resources {
-            info[resource.name] = String(describing: type(of: resource))
-        }
-        return info
-    }
-    
-    /// Get information about available tools
-    public func getToolInfo() -> [String: String] {
-        var info: [String: String] = [:]
-        for tool in tools {
-            info[tool.name] = String(describing: type(of: tool))
-        }
-        return info
-    }
 }
 
-// MARK: - Server Extensions
+// MARK: - Extensions for convenience
 
-extension MCPServer {
-    
-    /// Create a server with default configuration for weather app PoC
-    public static func weatherAppPoC() -> MCPServer {
-        return MCPServer()
+extension AppMCPServer {
+    /// Create a server for Weather app automation
+    public static func forWeatherApp() -> AppMCPServer {
+        return AppMCPServer()
     }
     
-    /// Validate that all required components are available
-    public func validateConfiguration() async throws {
-        // Check that we have the minimum required resources
-        let requiredResources = ["running_applications", "app_screenshot", "app_accessibility_tree"]
-        let availableResources = Set(resources.map { $0.name })
-        
-        for required in requiredResources {
-            guard availableResources.contains(required) else {
-                throw MCPError.systemError("Missing required resource: \(required)")
-            }
+    // MARK: - Test Support
+    
+    /// Test helper for resource calls (public for testing)  
+    public func testHandleResource(uri: String) async -> (success: Bool, content: String) {
+        let result = await self.handleResource(uri: uri)
+        // Use description to get string representation
+        if let firstContent = result.contents.first {
+            return (success: true, content: "\(firstContent)")
+        } else {
+            return (success: false, content: "No content")
         }
-        
-        // Check that we have the minimum required tools
-        let requiredTools = ["mouse_click", "type_text", "wait"]
-        let availableTools = Set(tools.map { $0.name })
-        
-        for required in requiredTools {
-            guard availableTools.contains(required) else {
-                throw MCPError.systemError("Missing required tool: \(required)")
-            }
+    }
+    
+    /// Test helper for automation calls (public for testing)
+    public func testHandleAutomation(_ arguments: [String: MCP.Value]) async -> (success: Bool, content: String, isError: Bool) {
+        let result = await self.handleAutomation(arguments)
+        // Use description to get string representation
+        if let firstContent = result.content.first {
+            return (success: true, content: "\(firstContent)", isError: result.isError ?? false)
+        } else {
+            return (success: false, content: "No content", isError: true)
         }
-        
-        print("✅ Server configuration validated successfully")
     }
 }

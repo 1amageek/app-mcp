@@ -1,83 +1,64 @@
 import Foundation
 import AppMCP
 import ArgumentParser
-import AppKit
-import MCP
 
 @main
 struct AppMCPDaemon: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "appmcpd",
-        abstract: "AppMCP Server Daemon - Model Context Protocol server for macOS GUI automation",
-        version: "0.2.0"
+        abstract: "AppMCP Server - Modern macOS UI Automation via MCP",
+        version: AppMCP.version
     )
-    
-    @Flag(name: .long, help: "Use STDIO transport (default)")
-    var stdio: Bool = false
     
     @Option(name: .long, help: "Use HTTP transport on specified port")
     var http: Int?
     
-    @Option(name: .long, help: "Log level (debug, info, warning, error)")
-    var logLevel: String = "info"
+    @Flag(name: .long, help: "Enable verbose output")
+    var verbose: Bool = false
     
-    @Flag(name: .long, help: "Validate configuration and exit")
-    var validate: Bool = false
+    @Flag(name: .long, help: "Weather app automation mode")
+    var weather: Bool = false
     
-    @Flag(name: .long, help: "Show available resources and tools")
+    @Flag(name: .long, help: "Show available capabilities")
     var listCapabilities: Bool = false
     
     func run() async throws {
         // Print banner
-        printBanner()
-        
-        // Initialize GUI environment to prevent CGS errors
-        await initializeGUIEnvironment()
-        
-        // Create server
-        let server = await AppMCPServer()
-        
-        // Handle special commands
-        if validate {
-            print("✅ Configuration validation not yet implemented in v0.2")
-            return
+        if verbose || listCapabilities {
+            printBanner()
         }
         
+        // Handle special commands
         if listCapabilities {
             printCapabilities()
             return
         }
         
-        // Determine transport
-        let transport: Transport
-        if let httpPort = http {
-            print("❌ HTTP transport not yet implemented in v0.2")
-            print("   Coming in future version with authentication support")
-            throw ExitCode.failure
+        // Create server
+        let server: AppMCPServer
+        if weather {
+            if verbose {
+                print("🌤️  Weather App Mode")
+            }
+            server = AppMCPServer.forWeatherApp()
         } else {
-            print("📡 Starting AppMCP server with STDIO transport")
-            transport = StdioTransport()
+            server = AppMCPServer()
         }
         
-        // Set up signal handling for graceful shutdown
+        // Check for HTTP transport
+        if let httpPort = http {
+            print("❌ HTTP transport not yet implemented")
+            print("   HTTP port \(httpPort) specified, but only STDIO is supported")
+            print("   Use STDIO transport for now (remove --http flag)")
+            throw ExitCode.failure
+        }
+        
+        // Set up signal handling
         setupSignalHandling()
         
         do {
-            // Start the server
-            try await server.start(transport: transport)
-            
-            // Keep the server running indefinitely
-            print("✅ Server started successfully, waiting for requests...")
-            
-            // Create a task that runs forever to keep the process alive
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    // Run indefinitely
-                    while true {
-                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                    }
-                }
-            }
+            // Start the server (this will run indefinitely)
+            try await server.start()
             
         } catch {
             print("❌ Failed to start server: \(error)")
@@ -88,89 +69,47 @@ struct AppMCPDaemon: AsyncParsableCommand {
     private func printBanner() {
         print("""
         ╭─────────────────────────────────────────────────────────────╮
-        │                         AppMCP v0.2.0                      │
-        │         Multi-App/Multi-Window macOS GUI Automation        │
-        │                    via MCP Protocol                        │
+        │                    AppMCP \(AppMCP.version)                        │
+        │           Modern macOS UI Automation via MCP               │
         │                                                             │
-        │  🎯 Advanced UI automation with handle-based management    │
+        │  🎯 Element-based automation powered by AppPilot           │
+        │  🚀 MCP Protocol \(AppMCP.mcpVersion) support                      │
         ╰─────────────────────────────────────────────────────────────╯
         """)
     }
     
     private func printCapabilities() {
         print("📋 Available Resources:")
-        print("   • installed_applications - List all installed .app bundles")
-        print("   • running_applications - List currently running applications")
-        print("   • accessible_applications - Apps with accessibility permissions + windows")
-        print("   • list_windows - List windows for specific app handle")
+        print("   • running_applications - List all running applications with metadata")
+        print("   • application_windows - All application windows with bounds and visibility")
         
         print("\n🔧 Available Tools:")
-        print("   • resolve_app - Get app_handle from bundle_id/name/pid")
-        print("   • resolve_window - Get window_handle from app_handle + title/index")
-        print("   • mouse_click - Click at coordinates (window/screen/global)")
-        print("   • type_text - Type text into focused element")
-        print("   • perform_gesture - Swipe/pinch/rotate gestures")
-        print("   • wait - Wait for time/UI change/window appear/disappear")
+        print("   • automation - Essential automation actions for macOS applications")
+        print("     - click: Click UI elements or coordinates")
+        print("     - type: Type text into elements or focused field")
+        print("     - drag: Drag from one point to another")
+        print("     - scroll: Scroll in specified direction and amount")
+        print("     - wait: Wait for specified duration")
+        print("     - find: Find and describe UI elements")
+        print("     - screenshot: Capture window screenshots")
         
-        print("\n💡 Typical Automation Workflow:")
-        print("   1. List apps: accessible_applications")
-        print("   2. Get app handle: resolve_app{bundle_id: 'com.apple.weather'}")
-        print("   3. Get window handle: resolve_window{app_handle: 'ah_1234', title_regex: '.*'}")
-        print("   4. Click UI element: mouse_click{window_handle: 'wh_5678', x: 100, y: 200}")
-        print("   5. Type search query: type_text{window_handle: 'wh_5678', text: 'Tokyo'}")
-        print("   6. Wait for results: wait{condition: 'ui_change', duration_ms: 3000}")
-        print("   7. Extract data: list_windows{app_handle: 'ah_1234'}")
+        print("\n💡 Example Usage:")
+        print("   automation{action: 'click', appName: 'Calculator', element: {title: 'Clear'}}")
+        print("   automation{action: 'type', bundleID: 'com.apple.TextEdit', text: 'Hello World'}")
+        print("   automation{action: 'drag', appName: 'Finder', startPoint: {x: 100, y: 100}, endPoint: {x: 200, y: 200}}")
+        print("   automation{action: 'scroll', appName: 'Safari', deltaY: -100}")
+        print("   automation{action: 'screenshot', bundleID: 'com.apple.weather'}")
     }
     
     private func setupSignalHandling() {
-        // Set up signal handling for graceful shutdown
         signal(SIGINT) { _ in
-            print("\n🛑 Received SIGINT, shutting down gracefully...")
+            print("\n🛑 Shutting down gracefully...")
             Foundation.exit(0)
         }
         
         signal(SIGTERM) { _ in
-            print("\n🛑 Received SIGTERM, shutting down gracefully...")
+            print("\n🛑 Shutting down gracefully...")
             Foundation.exit(0)
         }
-    }
-    
-    // MARK: - Helper Functions
-    
-    private func printUsageExamples() {
-        print("""
-        
-        📖 Usage Examples:
-        
-        # Start with STDIO transport (default)
-        appmcpd
-        
-        # Start with HTTP transport
-        appmcpd --http 8080
-        
-        # Validate configuration
-        appmcpd --validate
-        
-        # List available capabilities
-        appmcpd --list-capabilities
-        
-        # Start with debug logging
-        appmcpd --log-level debug
-        
-        """)
-    }
-    
-    /// Initialize GUI environment to prevent CGS initialization errors
-    private func initializeGUIEnvironment() async {
-        // Force NSApplication initialization to set up the GUI environment
-        DispatchQueue.main.async {
-            _ = NSApplication.shared
-            NSApplication.shared.setActivationPolicy(.accessory)
-        }
-        
-        // Give the GUI environment time to initialize
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-        
-        print("🔧 GUI environment initialized for ScreenCaptureKit compatibility")
     }
 }

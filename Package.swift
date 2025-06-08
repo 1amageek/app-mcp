@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.7.1"),
+        .package(url: "https://github.com/1amageek/AppPilot.git", from: "1.0.1"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.3.0")
     ],
@@ -23,7 +24,8 @@ let package = Package(
         .target(
             name: "AppMCP",
             dependencies: [
-                .product(name: "MCP", package: "swift-sdk")
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "AppPilot", package: "AppPilot")
             ],
             swiftSettings: [.unsafeFlags(["-enable-bare-slash-regex"])]
         ),
@@ -36,7 +38,9 @@ let package = Package(
         ),
         .testTarget(
             name: "AppMCPTests",
-            dependencies: ["AppMCP"]
+            dependencies: [
+                "AppMCP"
+            ]
         ),
     ]
 )

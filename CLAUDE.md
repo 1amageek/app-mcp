@@ -2,17 +2,43 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Architecture Overview
+
+AppMCP is now designed with clear separation of concerns:
+
+- **AppMCP (MCP Layer)**: Model Context Protocol interface and JSON-RPC handling
+- **AppPilot (Core Automation)**: Actual macOS UI automation with element-based operations
+
+AppMCP depends on AppPilot for all automation functionality, providing a clean MCP interface layer.
+
 ## Important: How to Use AppMCP Tools Correctly
+
+### Modern AppMCP Tool Usage
+AppMCP now provides a single unified `automation` tool with these actions:
+- `click`: Element-based or coordinate-based clicking (window context required)
+- `type`: Text input with element targeting or into focused element
+- `drag`: Drag operations between coordinates 
+- `scroll`: Scrolling with delta values
+- `wait`: Time-based waiting
+- `find`: Element discovery and listing
+- `screenshot`: Window capture
+
+### Security Features - Window Context Required
+All operations now require window context for security:
+- **bundleID** or **appName** parameter required for app targeting
+- **window** parameter (title or index) for window targeting
+- Element-based operations are preferred over raw coordinates
+- AppPilot automatically validates coordinates within window bounds
+- Target application focus is ensured before operations
 
 ### Listing Available Applications
 When asked to "list available apps" or "show running applications":
-- **DO NOT** use `resolve_app` with wildcards/regex (e.g., `".*"`) - it doesn't support patterns
 - **DO** use the `running_applications` resource: `appmcp://resources/running_applications`
-- This returns ALL running apps with names, bundle IDs, PIDs, and window counts
+- This returns ALL running apps with names, bundle IDs, handles, and active status
 
 ### Tools vs Resources
 - **Resources**: Use to GET information (list apps, check windows)
-- **Tools**: Use to PERFORM actions (click, type, find specific app)
+- **Tools**: Use to PERFORM actions (click, type, find, etc.)
 
 ## Commands
 
@@ -43,6 +69,15 @@ swift test --filter AppMCPTests
 swift test --enable-code-coverage
 ```
 
+### Testing Framework Notes
+**Swift Testing Usage**:
+- Use Swift Testing framework for all tests (Swift 6.1+ built-in support)
+- Import with `import Testing` (no Package.swift dependencies needed)
+- Use `@Test` for test functions and `@Suite` for test groups
+- Use `#expect()` for non-fatal assertions and `#require()` for fatal assertions
+- Swift Testing provides better async support, parameterized tests, and parallel execution
+- **DO NOT** use XCTest unless specifically required for legacy compatibility
+
 ### Lint & Format
 ```bash
 # Format Swift code (requires swift-format)
@@ -67,58 +102,184 @@ swift package show-dependencies
 ## Architecture
 
 ### Project Structure
-AppMCP is a Swift Package implementing Model Context Protocol (MCP) SDK v0.7.1 for macOS app automation. The package enables AI models to visually inspect, interpret, and control macOS applications through:
+AppMCP is a Swift Package implementing Model Context Protocol (MCP) SDK v0.7.1 for macOS app automation. The architecture follows a clear separation of concerns:
 
-1. **Resource Providers**: Capture screen content and accessibility tree information
-   - `ScreenshotProvider`: Returns base64-encoded PNG screenshots of active windows
-   - `AXTreeProvider`: Provides accessibility tree structure as JSON
+#### AppMCP Layer (MCP Interface)
+- **AppMCPServer**: Main MCP server implementing JSON-RPC automation tool
+- **Single Tool Design**: Unified `automation` tool with action-based dispatch
+- **Resource Providers**: 
+  - `running_applications`: List all running applications with metadata
+  - `application_windows`: All application windows with bounds and visibility
+- **MCP Transport**: STDIO transport for AI model communication
 
-2. **Tool Executors**: Perform UI automation actions
-   - `MouseTool`: Mouse movement and click operations
-   - `KeyboardTool`: Text input and keyboard shortcuts
+#### AppPilot Layer (Core Automation)
+AppMCP depends on AppPilot for all actual automation functionality:
 
-3. **Permission Management**: Handles macOS TCC (Transparency, Consent, and Control) permissions
-   - `TCCManager`: Checks and guides users through accessibility and screen recording permissions
+1. **Element-Based Automation**: Priority given to UI element discovery and interaction
+   - Accessibility API integration for reliable element targeting
+   - Role-based element filtering (buttons, text fields, etc.)
+   - Title and identifier-based element search
+
+2. **Window Context Operations**: All operations require explicit window targeting
+   - Application resolution by bundle ID or name
+   - Window resolution by title or index
+   - Automatic target application focus management
+   - Coordinate validation within window bounds
+
+3. **Driver Architecture**: Modular driver system for different automation aspects
+   - `AccessibilityDriver`: UI element discovery and accessibility tree traversal
+   - `CGEventDriver`: Low-level mouse/keyboard event generation
+   - `ScreenDriver`: Screen capture and recording permission management
 
 ### Key Design Patterns
-- **Protocol-based Architecture**: `MCPResourceProvider` and `MCPToolExecutor` protocols define the contract for extensions
-- **MCP Transport Abstraction**: Supports both STDIO and HTTP+SSE transports through swift-sdk
-- **Async/Await**: All resource and tool operations are async for non-blocking execution
-- **JSON-RPC Communication**: Uses MCP's JSON-RPC protocol for client-server communication
+- **Layered Architecture**: Clean separation between MCP protocol layer and automation core
+- **Element-First Approach**: Prefer UI element targeting over raw coordinates for reliability
+- **Window Context Security**: All operations require explicit window context to prevent unintended actions
+- **Async/Await**: Full async support throughout the stack
+- **Protocol-Based Drivers**: Pluggable driver architecture for testing and extensibility
 
-### Planned Components (per specification)
-- `MCPServer`: Main server class coordinating resources and tools
-- `appmcpd`: CLI daemon executable for running the MCP server
-- Endpoint registry using swift-sdk's DSL for defining available operations
+### Current Components
+- **AppMCPServer**: MCP protocol server with unified automation tool
+- **AppPilot Integration**: Seamless integration with AppPilot automation core
+- **appmcpd**: CLI daemon executable for running the MCP server
 
 ### Dependencies
 - `modelcontextprotocol/swift-sdk` >= 0.7.1: Core MCP protocol implementation
+- **AppPilot**: Core macOS UI automation library (separate dependency)
 - macOS 15+: Required for latest accessibility and screen capture APIs
 - Swift 6.1+: Language requirements
 
+## TestApp for Tool Validation
+
+### TestApp Overview
+A dedicated SwiftUI application for validating AppMCP tool functionality. Located in `TestApp/` directory.
+
+**Purpose**: Programmatic validation of all AppMCP tools with HTTP API for automated testing.
+
+**Bundle ID**: `com.example.TestApp` (for AppMCP targeting)
+**Window Title**: "AppMCP Test App" 
+**Window Size**: 800x600px (fixed, non-resizable)
+**API Server**: HTTP server on port 8765 for programmatic state access
+
+### TestApp Commands
+```bash
+# Build TestApp (SwiftUI app)
+cd TestApp
+xcodebuild -scheme TestApp -configuration Release
+
+# Run TestApp from Xcode or Finder
+open TestApp.xcodeproj
+
+# Alternatively, build and run from command line
+cd TestApp && swift run
+
+# Run automated tests (requires TestApp to be running)
+swift TestApp/TestRunner/main.swift --test full --output results.xml
+
+# Check TestApp API status
+curl http://localhost:8765/api/health
+
+# Get test state programmatically
+curl http://localhost:8765/api/state | jq '.summary'
+```
+
+### Test Categories
+
+#### 1. Mouse Click Tests
+- **Target Elements**: 5 circular buttons (四隅 + center, 100x100px each)
+- **Button States**: Red (unclicked) → Green (clicked)
+- **Parameters**: Button type (left/right/center), click count (1-3)
+- **Validation**: Coordinate accuracy, button type detection, multi-click handling
+
+#### 2. Keyboard Input Tests
+- **Input Field**: Multi-line text area with expected vs actual comparison
+- **Test Cases**: 
+  - Basic: "Hello123"
+  - Special chars: "!@#$%^&*()"
+  - Japanese: "こんにちは世界"
+  - Control chars: "Line1\nLine2\tTab"
+  - Shortcuts: Cmd+A, Cmd+C, Cmd+V
+- **Validation**: Character accuracy, encoding, timing
+
+#### 3. Wait Tool Tests
+- **Time Range**: 100ms - 5000ms (slider control)
+- **Progress**: Real-time progress bar
+- **Accuracy**: Calculated error percentage between expected and actual duration
+- **UI Change**: Dynamic elements for change detection testing
+
+#### 4. App/Window Resolution Tests
+- **Search Methods**: Bundle ID, process name, PID
+- **Results Display**: Found apps with metadata (Bundle ID, PID, window count)
+- **Window Search**: By title regex and index
+- **Validation**: Correct app targeting and window identification
+
+#### 5. Integration Tests
+- **Workflows**: Multi-step automation scenarios
+- **Progress**: Step-by-step execution with success/failure indicators
+- **Scenarios**: App launch → window focus → click → type → verify
+
+### TestApp Usage in AppMCP Development
+When testing AppMCP tools:
+1. Launch TestApp (HTTP API starts automatically)
+2. Use AppMCP to target TestApp via Bundle ID: `com.example.TestApp`
+3. Navigate to appropriate test screen
+4. Execute tool operations
+5. Verify results programmatically via HTTP API endpoints
+6. Use visual UI for debugging and manual verification
+
+### Automated Testing with AppMCP Integration Tests
+- **Test Suite**: `/Tests/AppMCPTests/AppMCPIntegrationTests.swift` (Swift Testing)
+- **Helper Classes**: TestAppController, AppMCPClient, TestValidator
+- **Test Coverage**: Discovery, click automation, keyboard input, timing, workflows
+- **Framework**: Swift Testing with `@Test`, `@Suite`, `#expect`, `#require`
+- **Features**: Async/await support, parameterized tests, parallel execution
+
+### Development Guidelines for TestApp
+- Keep UI simple and predictable for automation
+- Use consistent element IDs and accessibility labels
+- Provide clear visual feedback for all interactions
+- Log all interactions with timestamps
+- Support reset/clear operations for repeated testing
+
 ## Current Development Focus
 
-### Weather App PoC (Phase 1)
-**Target**: Demonstrate AI-driven automation by retrieving weather forecasts from macOS Weather app for arbitrary locations.
+### Modern AppMCP with AppPilot Integration (v1.0)
+**Target**: Provide robust, secure macOS UI automation through MCP protocol with element-based operations.
 
-**Key Components for PoC**:
-- `AppSelector`: Bundle ID-based app targeting (`com.apple.weather`)
-- `RunningAppsProvider`: List applications with Bundle IDs
-- `AppScreenshotProvider`: Capture screenshots of specified apps
-- `AppAXTreeProvider`: Extract accessibility trees from specified apps
-- `MouseClickTool`: Click coordinates in target app
-- `KeyboardTool`: Type text in target app (for location search)
-- `WaitTool`: Simple wait functionality for UI state changes
+**Key Components Implemented**:
+- **Unified Automation Tool**: Single `automation` tool with action dispatch (click, type, drag, scroll, wait, find, screenshot)
+- **AppPilot Integration**: Full integration with AppPilot core for reliable automation
+- **Element-Based Operations**: Priority on UI element discovery and interaction over raw coordinates
+- **Window Context Security**: All operations require explicit app and window targeting
+- **Resource Providers**: Real-time application and window discovery
 
-**Success Criteria**:
-- AI can identify Weather app programmatically
-- AI can locate and interact with search field
-- AI can input location and select search results
-- AI can extract weather information from display
-- Complete workflow works via MCP protocol
+**Success Criteria** (Achieved):
+- ✅ AI can identify and target applications by bundle ID or name
+- ✅ AI can discover and interact with UI elements reliably
+- ✅ AI can perform text input with proper element targeting
+- ✅ AI can capture screenshots of specific windows
+- ✅ All operations are secured with window context validation
+- ✅ Complete workflow works via MCP protocol with AppPilot backend
 
-## Future Development Phases
-- v0.1.0: Weather app PoC with Bundle ID targeting and basic automation
-- v0.2.0: Extended app support and DevTools integration
-- v0.3.0: Shortcuts.app bridge and streaming screenshot capability
-- v1.0.0: External HTTP authentication and plugin SDK
+### Weather App PoC Example Usage
+With the current implementation, Weather app automation works as follows:
+
+```json
+{
+  "action": "click",
+  "bundleID": "com.apple.weather",
+  "window": 0,
+  "element": {
+    "role": "AXTextField",
+    "title": "Search"
+  }
+}
+```
+
+**Core Features Available**:
+- Application targeting by bundle ID (`com.apple.weather`)
+- Window resolution by title or index
+- Element-based clicking and typing
+- Screenshot capture of specific windows
+- Wait operations for UI state changes
+
