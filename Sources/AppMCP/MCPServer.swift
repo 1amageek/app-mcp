@@ -43,7 +43,7 @@ public final class AppMCPServer: @unchecked Sendable {
                         "properties": [
                             "action": [
                                 "type": "string",
-                                "enum": ["click", "type", "drag", "scroll", "wait", "find", "screenshot"],
+                                "enum": ["click", "type", "setText", "drag", "scroll", "wait", "find", "screenshot"],
                                 "description": "Action to perform"
                             ],
                             "appName": [
@@ -65,7 +65,7 @@ public final class AppMCPServer: @unchecked Sendable {
                                     "title": ["type": "string", "description": "Element title or label"],
                                     "identifier": ["type": "string", "description": "Element accessibility identifier"]
                                 ],
-                                "description": "Target UI element (for click, type, find actions)"
+                                "description": "Target UI element (for click, type, setText, find actions)"
                             ],
                             "coordinates": [
                                 "type": "object",
@@ -77,7 +77,7 @@ public final class AppMCPServer: @unchecked Sendable {
                             ],
                             "text": [
                                 "type": "string",
-                                "description": "Text to type (for type action)"
+                                "description": "Text content (for type: keystroke simulation, setText: direct value setting)"
                             ],
                             "startPoint": [
                                 "type": "object",
@@ -148,6 +148,8 @@ public final class AppMCPServer: @unchecked Sendable {
         switch action {
         case "click":
             return try await performClick(arguments)
+        case "setText":
+            return try await performSetText(arguments)
         case "type":
             return try await performType(arguments)
         case "drag":
@@ -187,6 +189,29 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
+    private func performSetText(_ arguments: [String: MCP.Value]) async throws -> String {
+        guard case .string(let text) = arguments["text"] else {
+            throw AppMCPError.invalidParameters("Missing 'text' parameter")
+        }
+        
+        let (_, window) = try await resolveAppAndWindow(arguments)
+        
+        if let elementValue = arguments["element"] {
+            // Set text directly using AppPilot's setValue method (fast, direct)
+            let element = try await findElement(in: window, using: elementValue)
+            let result = try await pilot.setValue(text, for: element)
+            let actualText: String
+            if case .setValue(_, let actual) = result.data {
+                actualText = actual ?? "unknown"
+            } else {
+                actualText = "unknown"
+            }
+            return "Set text '\(text)' in \(element.role.rawValue) '\(element.title ?? element.id)'. Actual text: \(actualText)"
+        } else {
+            throw AppMCPError.invalidParameters("setText action requires 'element' parameter")
+        }
+    }
+    
     private func performType(_ arguments: [String: MCP.Value]) async throws -> String {
         guard case .string(let text) = arguments["text"] else {
             throw AppMCPError.invalidParameters("Missing 'text' parameter")
@@ -195,12 +220,18 @@ public final class AppMCPServer: @unchecked Sendable {
         let (_, window) = try await resolveAppAndWindow(arguments)
         
         if let elementValue = arguments["element"] {
-            // Type into specific element
+            // Type into specific element using AppPilot's input method (realistic keystroke simulation)
             let element = try await findElement(in: window, using: elementValue)
-            _ = try await pilot.typeIntoElement(element, text: text, in: window)
-            return "Typed '\(text)' into \(element.role.rawValue) '\(element.title ?? element.id)'"
+            let result = try await pilot.input(text: text, into: element)
+            let actualText: String
+            if case .type(_, let actual, _, _) = result.data {
+                actualText = actual ?? "unknown"
+            } else {
+                actualText = "unknown"
+            }
+            return "Typed '\(text)' into \(element.role.rawValue) '\(element.title ?? element.id)'. Actual text: \(actualText)"
         } else {
-            // Type into focused element with window context
+            // Type into focused element with window context (keystroke simulation)
             _ = try await pilot.type(text, window: window)
             return "Typed '\(text)' into focused element"
         }
@@ -540,9 +571,17 @@ extension AppMCPServer {
     /// Test helper for resource calls (public for testing)  
     public func testHandleResource(uri: String) async -> (success: Bool, content: String) {
         let result = await self.handleResource(uri: uri)
-        // Use description to get string representation
+        
         if let firstContent = result.contents.first {
-            return (success: true, content: "\(firstContent)")
+            if let text = firstContent.text {
+                return (success: true, content: text)
+            } else if let blob = firstContent.blob,
+                      let data = Data(base64Encoded: blob),
+                      let string = String(data: data, encoding: .utf8) {
+                return (success: true, content: string)
+            } else {
+                return (success: false, content: "No readable content")
+            }
         } else {
             return (success: false, content: "No content")
         }
@@ -551,9 +590,19 @@ extension AppMCPServer {
     /// Test helper for automation calls (public for testing)
     public func testHandleAutomation(_ arguments: [String: MCP.Value]) async -> (success: Bool, content: String, isError: Bool) {
         let result = await self.handleAutomation(arguments)
-        // Use description to get string representation
+        
         if let firstContent = result.content.first {
-            return (success: true, content: "\(firstContent)", isError: result.isError ?? false)
+            switch firstContent {
+            case .text(let text):
+                return (success: true, content: text, isError: result.isError ?? false)
+            case .image(data: let base64, mimeType: _, metadata: _):
+                return (success: true, content: base64, isError: result.isError ?? false)
+            case .resource(uri: let uri, mimeType: _, text: let text):
+                let content = text ?? "Resource: \(uri)"
+                return (success: true, content: content, isError: result.isError ?? false)
+            case .audio(data: let base64, mimeType: _):
+                return (success: true, content: base64, isError: result.isError ?? false)
+            }
         } else {
             return (success: false, content: "No content", isError: true)
         }

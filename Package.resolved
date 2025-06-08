@@ -1,13 +1,13 @@
 {
-  "originHash" : "01b7c5b300342b7e338fe4028013f85215131a604bf91e6ad28896ecda355b9b",
+  "originHash" : "097a567e50542489402b5a79a239a7c67c7d134559839c6168714493bde45679",
   "pins" : [
     {
       "identity" : "apppilot",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/AppPilot.git",
       "state" : {
-        "revision" : "7bfce24e7d1f0edbdd21b873783dc2e45fc99bd0",
-        "version" : "1.0.1"
+        "revision" : "20859c42cbb8e6bb7b1945e7fcc2fcdd932a0ed4",
+        "version" : "1.1.2"
       }
     },
     {

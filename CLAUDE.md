@@ -78,6 +78,13 @@ swift test --enable-code-coverage
 - Swift Testing provides better async support, parameterized tests, and parallel execution
 - **DO NOT** use XCTest unless specifically required for legacy compatibility
 
+**CRITICAL RULE - Swift Testing Package Dependency**:
+- **NEVER add swift-testing package dependency to Package.swift**
+- Swift 6.1+ has built-in Swift Testing support - external dependencies cause conflicts and warnings
+- If you see deprecation warnings about "swift-testing package dependency", immediately remove it from Package.swift
+- Only use `import Testing` in test files - no Package.swift changes needed
+- The testTarget should only depend on the main module: `dependencies: ["AppMCP"]`
+
 ### Lint & Format
 ```bash
 # Format Swift code (requires swift-format)
