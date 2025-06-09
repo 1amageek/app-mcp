@@ -680,9 +680,13 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performScreenshot(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let (app, window) = try await resolveAppAndWindow(arguments)
         
         let format = extractStringValue(arguments["format"]) ?? "png"
+        
+        // Get window information for context
+        let windows = try await pilot.listWindows(app: app)
+        let windowInfo = windows.first(where: { $0.id == window })
         
         // Use AppPilot's improved window-specific screenshot capability
         let cgImage = try await pilot.capture(window: window)
@@ -706,7 +710,22 @@ public final class AppMCPServer: @unchecked Sendable {
             mimeType = "image/png"
         }
         
-        return "data:\(mimeType);base64,\(imageData.base64EncodedString())"
+        // Build response with window context
+        let base64Data = imageData.base64EncodedString()
+        let windowTitle = windowInfo?.title ?? "Unknown Window"
+        let appName = windowInfo?.appName ?? "Unknown App"
+        let dimensions = "\(cgImage.width)x\(cgImage.height)"
+        
+        return """
+        Screenshot captured successfully:
+        - Application: \(appName)
+        - Window: \(windowTitle)
+        - Dimensions: \(dimensions)
+        - Format: \(format.uppercased())
+        - Size: \(String(format: "%.1f", Double(imageData.count) / 1024.0)) KB
+        
+        data:\(mimeType);base64,\(base64Data)
+        """
     }
     
     // MARK: - Resource Handlers
