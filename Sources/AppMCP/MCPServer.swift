@@ -53,20 +53,45 @@ public final class AppMCPServer: @unchecked Sendable {
                             "element": [
                                 "type": "object",
                                 "properties": [
-                                    "type": ["type": "string", "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"], "description": "Type of UI element"],
-                                    "text": ["type": "string", "description": "Exact text displayed on or in the element"],
-                                    "placeholder": ["type": "string", "description": "Placeholder text for text fields"],
-                                    "label": ["type": "string", "description": "Accessibility label of the element"],
-                                    "containing": ["type": "string", "description": "Text that the element contains (partial match)"],
-                                    "index": ["type": "number", "description": "Index of the element when multiple elements match (0-based)"]
+                                    "type": [
+                                        "type": "string",
+                                        "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"],
+                                        "description": "Type of UI element"
+                                    ],
+                                    "text": [
+                                        "type": "string",
+                                        "description": "Exact text displayed on or in the element"
+                                    ],
+                                    "placeholder": [
+                                        "type": "string",
+                                        "description": "Placeholder text for text fields"
+                                    ],
+                                    "label": [
+                                        "type": "string",
+                                        "description": "Accessibility label of the element"
+                                    ],
+                                    "containing": [
+                                        "type": "string",
+                                        "description": "Text that the element contains (partial match)"
+                                    ],
+                                    "index": [
+                                        "type": "number",
+                                        "description": "Index of the element when multiple elements match (0-based)"
+                                    ]
                                 ],
                                 "description": "Target UI element (preferred method)"
                             ],
                             "coordinates": [
                                 "type": "object",
                                 "properties": [
-                                    "x": ["type": "number", "description": "X coordinate"],
-                                    "y": ["type": "number", "description": "Y coordinate"]
+                                    "x": [
+                                        "type": "number",
+                                        "description": "X coordinate"
+                                    ],
+                                    "y": [
+                                        "type": "number",
+                                        "description": "Y coordinate"
+                                    ]
                                 ],
                                 "description": "Screen coordinates (fallback when element not available)"
                             ],
@@ -105,12 +130,31 @@ public final class AppMCPServer: @unchecked Sendable {
                             "element": [
                                 "type": "object",
                                 "properties": [
-                                    "type": ["type": "string", "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"], "description": "Type of UI element"],
-                                    "text": ["type": "string", "description": "Exact text displayed on or in the element"],
-                                    "placeholder": ["type": "string", "description": "Placeholder text for text fields"],
-                                    "label": ["type": "string", "description": "Accessibility label of the element"],
-                                    "containing": ["type": "string", "description": "Text that the element contains (partial match)"],
-                                    "index": ["type": "number", "description": "Index of the element when multiple elements match (0-based)"]
+                                    "type": [
+                                        "type": "string",
+                                        "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"],
+                                        "description": "Type of UI element"
+                                    ],
+                                    "text": [
+                                        "type": "string",
+                                        "description": "Exact text displayed on or in the element"
+                                    ],
+                                    "placeholder": [
+                                        "type": "string",
+                                        "description": "Placeholder text for text fields"
+                                    ],
+                                    "label": [
+                                        "type": "string",
+                                        "description": "Accessibility label of the element"
+                                    ],
+                                    "containing": [
+                                        "type": "string",
+                                        "description": "Text that the element contains (partial match)"
+                                    ],
+                                    "index": [
+                                        "type": "number",
+                                        "description": "Index of the element when multiple elements match (0-based)"
+                                    ]
                                 ],
                                 "description": "Target text field (optional, uses focused element if not specified)"
                             ],
@@ -145,8 +189,14 @@ public final class AppMCPServer: @unchecked Sendable {
                             "from": [
                                 "type": "object",
                                 "properties": [
-                                    "x": ["type": "number", "description": "Start X coordinate"],
-                                    "y": ["type": "number", "description": "Start Y coordinate"]
+                                    "x": [
+                                        "type": "number",
+                                        "description": "Start X coordinate"
+                                    ],
+                                    "y": [
+                                        "type": "number",
+                                        "description": "Start Y coordinate"
+                                    ]
                                 ],
                                 "required": ["x", "y"],
                                 "description": "Start point for drag"
@@ -154,8 +204,14 @@ public final class AppMCPServer: @unchecked Sendable {
                             "to": [
                                 "type": "object",
                                 "properties": [
-                                    "x": ["type": "number", "description": "End X coordinate"],
-                                    "y": ["type": "number", "description": "End Y coordinate"]
+                                    "x": [
+                                        "type": "number",
+                                        "description": "End X coordinate"
+                                    ],
+                                    "y": [
+                                        "type": "number",
+                                        "description": "End Y coordinate"
+                                    ]
                                 ],
                                 "required": ["x", "y"],
                                 "description": "End point for drag"
@@ -194,8 +250,14 @@ public final class AppMCPServer: @unchecked Sendable {
                             "position": [
                                 "type": "object",
                                 "properties": [
-                                    "x": ["type": "number", "description": "X coordinate for scroll position"],
-                                    "y": ["type": "number", "description": "Y coordinate for scroll position"]
+                                    "x": [
+                                        "type": "number",
+                                        "description": "X coordinate for scroll position"
+                                    ],
+                                    "y": [
+                                        "type": "number",
+                                        "description": "Y coordinate for scroll position"
+                                    ]
                                 ],
                                 "description": "Scroll position (optional, uses window center if not specified)"
                             ]
@@ -469,6 +531,10 @@ public final class AppMCPServer: @unchecked Sendable {
         // Extract required bundleID using type-safe method
         let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
         
+        // Extract optional button type and click count
+        let buttonType = extractOptionalString(from: arguments, key: "button") ?? "left"
+        let clickCount = extractOptionalDouble(from: arguments, key: "clickCount").map { Int($0) } ?? 1
+        
         // Resolve app and window
         let app = try await pilot.findApplication(bundleId: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
@@ -476,8 +542,18 @@ public final class AppMCPServer: @unchecked Sendable {
         // Check for element parameter first (preferred method)
         if let elementObject = extractOptionalObject(from: arguments, key: "element") {
             let element = try await findElementWithCriteria(elementObject, in: window)
-            _ = try await pilot.clickElement(element, in: window)
-            return "Clicked element \(element.role.rawValue) '\(element.title ?? element.id)' at (\(element.centerPoint.x), \(element.centerPoint.y))"
+            
+            // Use AppPilot's click method with button type and count parameters
+            for _ in 0..<clickCount {
+                _ = try await pilot.clickElement(element, in: window)
+                if clickCount > 1 {
+                    try await pilot.wait(.time(seconds: 0.1)) // Brief delay between multiple clicks
+                }
+            }
+            
+            let buttonDesc = buttonType == "left" ? "" : " (\(buttonType) button)"
+            let countDesc = clickCount == 1 ? "" : " \(clickCount) times"
+            return "Clicked\(buttonDesc) element \(element.role.rawValue) '\(element.title ?? element.id)'\(countDesc) at (\(element.centerPoint.x), \(element.centerPoint.y))"
         }
         
         // Fallback to coordinate-based click
@@ -485,8 +561,18 @@ public final class AppMCPServer: @unchecked Sendable {
             let x = try extractRequiredDouble(from: coordinatesObject, key: "x")
             let y = try extractRequiredDouble(from: coordinatesObject, key: "y")
             let point = Point(x: x, y: y)
-            _ = try await pilot.click(window: window, at: point)
-            return "Clicked at coordinates (\(x), \(y))"
+            
+            // Use coordinate-based clicking with button type and count
+            for _ in 0..<clickCount {
+                _ = try await pilot.click(window: window, at: point)
+                if clickCount > 1 {
+                    try await pilot.wait(.time(seconds: 0.1)) // Brief delay between multiple clicks
+                }
+            }
+            
+            let buttonDesc = buttonType == "left" ? "" : " (\(buttonType) button)"
+            let countDesc = clickCount == 1 ? "" : " \(clickCount) times"
+            return "Clicked\(buttonDesc)\(countDesc) at coordinates (\(x), \(y))"
         }
         
         throw AppMCPError.invalidParameters("Either 'element' or 'coordinates' parameter is required")
@@ -573,24 +659,21 @@ public final class AppMCPServer: @unchecked Sendable {
         let app = try await pilot.findApplication(bundleId: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
         
-        guard case .object(let fromCoords) = arguments["from"],
-              case .double(let startX) = fromCoords["x"],
-              case .double(let startY) = fromCoords["y"],
-              case .object(let toCoords) = arguments["to"],
-              case .double(let endX) = toCoords["x"],
-              case .double(let endY) = toCoords["y"] else {
-            throw AppMCPError.invalidParameters("Missing 'from' and 'to' parameters for drag action")
-        }
+        // Extract 'from' coordinates using type-safe method
+        let fromCoords = try extractRequiredObject(from: arguments, key: "from")
+        let startX = try extractRequiredDouble(from: fromCoords, key: "x")
+        let startY = try extractRequiredDouble(from: fromCoords, key: "y")
+        
+        // Extract 'to' coordinates using type-safe method
+        let toCoords = try extractRequiredObject(from: arguments, key: "to")
+        let endX = try extractRequiredDouble(from: toCoords, key: "x")
+        let endY = try extractRequiredDouble(from: toCoords, key: "y")
         
         let startPoint = Point(x: startX, y: startY)
         let endPoint = Point(x: endX, y: endY)
         
-        let duration: TimeInterval
-        if case .double(let d) = arguments["duration"] {
-            duration = d
-        } else {
-            duration = 1.0
-        }
+        // Extract duration using type-safe method with default
+        let duration = extractOptionalDouble(from: arguments, key: "duration") ?? 1.0
         
         _ = try await pilot.drag(from: startPoint, to: endPoint, duration: duration, window: window)
         return "Dragged from (\(startX), \(startY)) to (\(endX), \(endY)) over \(duration) seconds"
@@ -628,13 +711,12 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performWait(_ arguments: [String: MCP.Value]) async throws -> String {
-        let duration: Double
-        if case .double(let d) = arguments["duration"] {
-            duration = d
-        } else if case .int(let i) = arguments["duration"] {
-            duration = Double(i)
-        } else {
-            duration = 1.0 // Default 1 second
+        // Extract required duration parameter using type-safe method
+        let duration = try extractRequiredDouble(from: arguments, key: "duration")
+        
+        // Validate duration is positive
+        guard duration > 0 else {
+            throw AppMCPError.invalidParameters("Duration must be positive, got \(duration)")
         }
         
         try await pilot.wait(.time(seconds: duration))
