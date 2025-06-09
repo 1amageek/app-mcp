@@ -9,10 +9,9 @@ import AppPilot
 /// 
 /// These tests validate that AppMCP can successfully automate the macOS Weather app
 /// to search for locations and retrieve weather information.
-@Suite("Weather App Automation Tests")
+@Suite("Weather App Automation Tests", .serialized)
 struct WeatherAppTests {
     
-    private let server = AppMCPServer()
     private let weatherBundleID = "com.apple.weather"
     
     // MARK: - Basic App Discovery Tests
@@ -238,61 +237,151 @@ struct WeatherAppTests {
     @Test("Can activate search mode and search for location")
     func testLocationSearchWithFocus() async throws {
         try await launchWeatherApp()
-        try await Task.sleep(nanoseconds: 3_000_000_000)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
         
-        // First, find all buttons to locate the search activation button
-        let allButtons = try await callTool("find_elements", [
+        // Reset app state to ensure clean starting point
+        try await resetWeatherAppState()
+        
+        // Weather.app has search field available by default, no need to activate search mode
+        // Directly look for text fields
+        let findTextFields = try await callTool("find_elements", [
             "bundleID": weatherBundleID,
-            "type": "button"
+            "type": "textfield"
         ])
         
-        print("Available buttons in Weather app: \(allButtons)")
+        print("Text fields in Weather app: \(findTextFields)")
         
-        // Try to activate search mode first by clicking a button (likely the "+" or search button)
-        do {
-            // Try clicking the first button to potentially activate search mode
-            let activateSearchResult = try await callTool("click_element", [
+        if findTextFields.contains("Found") {
+            // Search field is available, try to search for Tokyo
+            let searchResult = try await searchForLocation("Tokyo")
+            print("Location search result: \(searchResult)")
+            
+            #expect(searchResult.contains("Search field clicked") || searchResult.contains("Typed"), 
+                   "Should successfully perform search operation: \(searchResult)")
+        } else {
+            print("No text fields found in Weather app")
+            #expect(Bool(false), "Should find search field in Weather app")
+        }
+    }
+    
+    @Test("Debug suggestion discovery after text input")
+    func testSuggestionDebug() async throws {
+        try await launchWeatherApp()
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        
+        // Reset app state
+        try await resetWeatherAppState()
+        
+        // Find and click text field
+        let textFieldResult = try await callTool("find_elements", [
+            "bundleID": weatherBundleID,
+            "type": "textfield"
+        ])
+        
+        if textFieldResult.contains("Found") {
+            // Click text field
+            _ = try await callTool("click_element", [
                 "bundleID": weatherBundleID,
                 "element": [
-                    "type": "button"
+                    "type": "textfield"
                 ]
             ])
             
-            print("Clicked button to activate search: \(activateSearchResult)")
-            
-            // Wait for search interface to appear
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-            
-            // Now look for text fields again
-            let findTextFieldAfterActivation = try await callTool("find_elements", [
+            // Type "Tokyo"
+            _ = try await callTool("input_text", [
                 "bundleID": weatherBundleID,
-                "type": "textfield"
+                "text": "Tokyo",
+                "method": "setValue",
+                "element": [
+                    "type": "textfield"
+                ]
             ])
             
-            print("Text fields after search activation: \(findTextFieldAfterActivation)")
+            // Wait for suggestions to appear
+            try await Task.sleep(nanoseconds: 3_000_000_000)
             
-            if findTextFieldAfterActivation.contains("Found") {
-                // If search field appeared, try to search for Tokyo
-                let searchResult = try await searchForLocation("Tokyo")
-                print("Location search result: \(searchResult)")
-                
-                #expect(searchResult.contains("Search field clicked") || searchResult.contains("Typed"), 
-                       "Should successfully perform search operation: \(searchResult)")
-            } else {
-                print("Search mode activation did not reveal text fields")
-                #expect(Bool(true), "Test completed - search activation attempted")
+            // Get ALL elements to see what appears after typing
+            let allElementsAfterTyping = try await callTool("find_elements", [
+                "bundleID": weatherBundleID
+            ])
+            
+            print("=== ALL ELEMENTS AFTER TYPING TOKYO ===")
+            print(allElementsAfterTyping)
+            print("=== END OF ALL ELEMENTS ===")
+            
+            // Try different element types that might be suggestions
+            let possibleSuggestionTypes = [
+                "list", "table", "menu", "cell", "row", 
+                "menuitem", "popover", "scrollarea", "group"
+            ]
+            
+            for suggestionType in possibleSuggestionTypes {
+                do {
+                    let elements = try await callTool("find_elements", [
+                        "bundleID": weatherBundleID,
+                        "type": suggestionType
+                    ])
+                    
+                    if elements.contains("Found") {
+                        print("=== FOUND \(suggestionType.uppercased()) ELEMENTS ===")
+                        print(elements)
+                        print("=== END OF \(suggestionType.uppercased()) ===")
+                    }
+                } catch {
+                    print("No \(suggestionType) elements found")
+                }
             }
             
-        } catch {
-            print("Failed to activate search mode: \(error)")
-            #expect(Bool(true), "Test completed - search activation failed as expected")
+            // Also check for elements containing "Tokyo" or location-related text
+            let locationPatterns = ["Tokyo", "東京", "Japan", "日本", "JP"]
+            for pattern in locationPatterns {
+                do {
+                    let patternElements = try await callTool("find_elements", [
+                        "bundleID": weatherBundleID,
+                        "text": pattern
+                    ])
+                    
+                    if patternElements.contains("Found") {
+                        print("=== FOUND ELEMENTS WITH TEXT '\(pattern)' ===")
+                        print(patternElements)
+                        print("=== END OF '\(pattern)' ELEMENTS ===")
+                    }
+                } catch {
+                    print("No elements with text '\(pattern)' found")
+                }
+            }
+            
+            // Try to find elements by role (raw AX roles)
+            let axRoles = ["AXList", "AXTable", "AXPopover", "AXMenu", "AXMenuItem", 
+                          "AXCell", "AXRow", "AXScrollArea", "AXGroup"]
+            for role in axRoles {
+                do {
+                    let roleElements = try await callTool("find_elements", [
+                        "bundleID": weatherBundleID,
+                        "role": role
+                    ])
+                    
+                    if roleElements.contains("Found") {
+                        print("=== FOUND \(role) ELEMENTS ===")
+                        print(roleElements)
+                        print("=== END OF \(role) ===")
+                    }
+                } catch {
+                    print("No \(role) elements found")
+                }
+            }
         }
+        
+        #expect(Bool(true), "Debug test completed - check logs for suggestion discovery")
     }
     
     @Test("Debug element discovery mapping issues")
     func testTextFieldFocusVerification() async throws {
         try await launchWeatherApp()
         try await Task.sleep(nanoseconds: 3_000_000_000)
+        
+        // Reset app state to ensure clean starting point
+        try await resetWeatherAppState()
         
         // Check all available windows in Weather app
         let windowsResource = try await callResource("appmcp://resources/application_windows")
@@ -421,6 +510,23 @@ struct WeatherAppTests {
     
     // MARK: - Helper Methods
     
+    private func resetWeatherAppState() async throws {
+        // Close any open dialogs or search modes by pressing Escape key
+        do {
+            _ = try await callTool("input_text", [
+                "bundleID": weatherBundleID,
+                "text": String(UnicodeScalar(27)!), // Escape key
+                "method": "type"
+            ])
+            
+            // Wait for UI to settle
+            try await Task.sleep(nanoseconds: 500_000_000)
+        } catch {
+            // Ignore errors as escape key might not be needed
+            print("Reset attempt with Escape key: \(error)")
+        }
+    }
+    
     private func launchWeatherApp() async throws {
         let workspace = NSWorkspace.shared
         
@@ -443,8 +549,9 @@ struct WeatherAppTests {
         return FileManager.default.fileExists(atPath: appPath)
     }
     
-    private func callResource(_ uri: String) async throws -> String {
-        let result = await testHandleResource(uri: uri)
+    private func callResource(_ uri: String, server: AppMCPServer? = nil) async throws -> String {
+        let serverInstance = server ?? AppMCPServer()
+        let result = await testHandleResource(uri: uri, server: serverInstance)
         
         try #require(result.success, "Resource call should succeed")
         
@@ -452,7 +559,7 @@ struct WeatherAppTests {
     }
     
     /// Test helper for resource calls
-    private func testHandleResource(uri: String) async -> (success: Bool, content: String) {
+    private func testHandleResource(uri: String, server: AppMCPServer) async -> (success: Bool, content: String) {
         let result = await server.handleResource(uri: uri)
         
         if let firstContent = result.contents.first {
@@ -470,7 +577,7 @@ struct WeatherAppTests {
         }
     }
     
-    private func callTool(_ toolName: String, _ arguments: [String: Any]) async throws -> String {
+    private func callTool(_ toolName: String, _ arguments: [String: Any], server: AppMCPServer? = nil) async throws -> String {
         // Convert arguments to MCP.Value format
         let mcpArguments = arguments.mapValues { value -> MCP.Value in
             switch value {
@@ -502,7 +609,8 @@ struct WeatherAppTests {
             }
         }
         
-        let result = await testHandleTool(toolName, mcpArguments)
+        let serverInstance = server ?? AppMCPServer()
+        let result = await testHandleTool(toolName, mcpArguments, server: serverInstance)
         
         try #require(result.success, "Tool call should succeed")
         
@@ -514,7 +622,7 @@ struct WeatherAppTests {
     }
     
     /// Test helper for tool calls
-    private func testHandleTool(_ toolName: String, _ arguments: [String: MCP.Value]) async -> (success: Bool, content: String, isError: Bool) {
+    private func testHandleTool(_ toolName: String, _ arguments: [String: MCP.Value], server: AppMCPServer) async -> (success: Bool, content: String, isError: Bool) {
         let result: CallTool.Result
         
         switch toolName {
@@ -576,14 +684,25 @@ struct WeatherAppTests {
                     ]
                 ])
                 
-                // Wait longer for field to be focused
-                try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                // Wait for field to be focused
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
                 
-                // Instead of checking if text field exists (it always should),
-                // just proceed with text input and let setValue method handle any issues
-                print("Strategy 1: Text field clicked, proceeding with text input")
+                print("Strategy 1: Text field clicked, clearing existing value")
                 
-                // Set the location name directly
+                // Clear existing value using setValue
+                _ = try await callTool("input_text", [
+                    "bundleID": weatherBundleID,
+                    "text": "",
+                    "method": "setValue",
+                    "element": [
+                        "type": "textfield"
+                    ]
+                ])
+                
+                // Small wait after clearing
+                try await Task.sleep(nanoseconds: 500_000_000)
+                
+                // Now type the location
                 let typeResult = try await callTool("input_text", [
                     "bundleID": weatherBundleID,
                     "text": location,
@@ -604,7 +723,7 @@ struct WeatherAppTests {
                 // Try to click the first suggestion
                 let clickSuggestion = try await clickFirstSuggestion()
                 
-                return "Search field clicked: \(clickResult), Typed: \(typeResult), Suggestions: \(findSuggestions.prefix(200)), Clicked suggestion: \(clickSuggestion)"
+                return "Search field clicked: \(clickResult), Cleared and typed: \(typeResult), Suggestions: \(findSuggestions.prefix(200)), Clicked suggestion: \(clickSuggestion)"
             }
         } catch {
             print("Strategy 1 failed with detailed error: \(error)")
@@ -682,81 +801,109 @@ struct WeatherAppTests {
     }
     
     private func clickFirstSuggestion() async throws -> String {
-        // First, get all UI elements to find suggestions dynamically
-        let allElements = try await callTool("find_elements", [
-            "bundleID": weatherBundleID
-        ])
+        // Weather.app suggestion display pattern based on debug findings:
+        // 1. After typing text, suggestions appear as a table with cells
+        // 2. Table appears at coordinates around x=1089 (to the right of text field)
+        // 3. Each suggestion is an AXCell element within the table
         
-        print("All elements after search: \(allElements.prefix(500))")
+        // Wait for suggestions to appear
+        try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
         
-        // Try to find and click suggestion items by role
-        let suggestionRoles = ["AXMenuItem", "AXButton", "AXStaticText", "AXCell", "AXRow", "AXList", "AXTable"]
-        
-        for role in suggestionRoles {
-            do {
-                let findResult = try await callTool("find_elements", [
-                    "bundleID": weatherBundleID,
-                    "role": role
-                ])
-                
-                if findResult.contains("Found") && !findResult.contains("Error") {
-                    print("Found \(role) elements: \(findResult.prefix(200))")
-                    
-                    // Try to click the first found element of this role
-                    let clickResult = try await callTool("click_element", [
-                        "bundleID": weatherBundleID,
-                        "element": [
-                            "role": role
-                        ]
-                    ])
-                    
-                    return "Clicked \(role): \(clickResult)"
-                }
-            } catch {
-                print("Failed to find/click \(role): \(error)")
-                continue
-            }
-        }
-        
-        // Try to find suggestions by common patterns in element text
-        let suggestionPatterns = ["Tokyo", "New York", "London", "Paris", "Berlin"]
-        
-        for pattern in suggestionPatterns {
-            do {
-                let findResult = try await callTool("find_elements", [
-                    "bundleID": weatherBundleID,
-                    "title": pattern
-                ])
-                
-                if findResult.contains("Found") {
-                    let clickResult = try await callTool("click_element", [
-                        "bundleID": weatherBundleID,
-                        "element": [
-                            "title": pattern
-                        ]
-                    ])
-                    
-                    return "Clicked suggestion with title '\(pattern)': \(clickResult)"
-                }
-            } catch {
-                continue
-            }
-        }
-        
-        // Try pressing Enter key as many suggestion interfaces accept this
+        // Strategy 1: Find and click the first table cell (suggestion)
         do {
+            print("Looking for suggestion table elements")
+            
+            // Find table elements that appear after typing
+            let tableElements = try await callTool("find_elements", [
+                "bundleID": weatherBundleID,
+                "type": "table"
+            ])
+            
+            print("Table elements found: \(tableElements)")
+            
+            if tableElements.contains("Found") {
+                // Try to click the first cell in the table
+                let cellClickResult = try await callTool("click_element", [
+                    "bundleID": weatherBundleID,
+                    "element": [
+                        "type": "table"  // This will click the first matching table/cell element
+                    ]
+                ])
+                
+                // Wait for selection to process
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                
+                return "Clicked suggestion table/cell: \(cellClickResult)"
+            }
+        } catch {
+            print("Table click strategy failed: \(error)")
+        }
+        
+        // Strategy 2: Try clicking at the coordinates where suggestions appear
+        // Based on logs, suggestions appear at around x=1089, y=-973 (middle of suggestion list)
+        do {
+            print("Attempting coordinate-based click on suggestion area")
+            
+            let coordinateClickResult = try await callTool("click_element", [
+                "bundleID": weatherBundleID,
+                "coordinates": [
+                    "x": 1089,
+                    "y": -973
+                ]
+            ])
+            
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            
+            return "Clicked suggestion area by coordinates: \(coordinateClickResult)"
+        } catch {
+            print("Coordinate click strategy failed: \(error)")
+        }
+        
+        // Strategy 3: Use Enter key as fallback
+        // Weather.app might accept Enter to search for the typed location
+        do {
+            print("Falling back to Enter key for search")
             let enterResult = try await callTool("input_text", [
                 "bundleID": weatherBundleID,
                 "text": "\n",
                 "method": "type"
             ])
             
-            return "Pressed Enter key: \(enterResult)"
+            // Wait for search to complete
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            
+            return "Used Enter key to search: \(enterResult)"
         } catch {
-            print("Enter key failed: \(error)")
+            print("Enter key strategy failed: \(error)")
         }
         
-        return "No suggestion found to click - tried roles: \(suggestionRoles.joined(separator: ", "))"
+        // Strategy 4: Arrow key navigation
+        // Try using down arrow to select first suggestion, then Enter
+        do {
+            print("Attempting arrow key navigation")
+            
+            // Press down arrow to highlight first suggestion
+            let downArrowResult = try await callTool("input_text", [
+                "bundleID": weatherBundleID,
+                "text": "\u{001B}[B",  // Down arrow escape sequence
+                "method": "type"
+            ])
+            
+            try await Task.sleep(nanoseconds: 500_000_000)
+            
+            // Press Enter to select
+            let selectResult = try await callTool("input_text", [
+                "bundleID": weatherBundleID,
+                "text": "\n",
+                "method": "type"
+            ])
+            
+            return "Arrow navigation: \(downArrowResult), selected: \(selectResult)"
+        } catch {
+            print("Arrow key strategy failed: \(error)")
+        }
+        
+        return "Unable to click suggestion - tried table click, coordinate click, Enter key, and arrow navigation"
     }
     
     private func findWeatherInformation() async throws -> [String] {
