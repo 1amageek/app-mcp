@@ -283,6 +283,27 @@ public final class AppMCPServer: @unchecked Sendable {
                         ],
                         "required": ["duration"]
                     ]
+                ),
+                
+                // Information Tools
+                MCP.Tool(
+                    name: "list_running_applications",
+                    description: "Get list of currently running applications with metadata",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [:],
+                        "required": []
+                    ]
+                ),
+                
+                MCP.Tool(
+                    name: "list_application_windows",
+                    description: "Get list of all application windows with bounds and visibility info",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [:],
+                        "required": []
+                    ]
                 )
             ])
         }
@@ -305,6 +326,10 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleCaptureScreenshot(arguments)
             case "wait_time":
                 return await self.handleWaitTime(arguments)
+            case "list_running_applications":
+                return await self.handleListRunningApplications(arguments)
+            case "list_application_windows":
+                return await self.handleListApplicationWindows(arguments)
             default:
                 return CallTool.Result(
                     content: [.text("Unknown tool: \(params.name)")],
@@ -404,6 +429,30 @@ public final class AppMCPServer: @unchecked Sendable {
     internal func handleWaitTime(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
         do {
             let result = try await performWait(arguments)
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return CallTool.Result(
+                content: [.text("Error: \(error.localizedDescription)")],
+                isError: true
+            )
+        }
+    }
+    
+    internal func handleListRunningApplications(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await getApplications()
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return CallTool.Result(
+                content: [.text("Error: \(error.localizedDescription)")],
+                isError: true
+            )
+        }
+    }
+    
+    internal func handleListApplicationWindows(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await getWindows()
             return CallTool.Result(content: [.text(result)])
         } catch {
             return CallTool.Result(

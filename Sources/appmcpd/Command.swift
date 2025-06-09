@@ -98,6 +98,10 @@ struct AppMCPDaemon: AsyncParsableCommand {
         print("     Parameters: bundleID, format (png/jpeg)")
         print("   • wait_time - Wait for a specified duration")
         print("     Parameters: duration (seconds)")
+        print("   • list_running_applications - Get list of currently running applications")
+        print("     Parameters: none")
+        print("   • list_application_windows - Get list of all application windows")
+        print("     Parameters: none")
         
         print("\n💡 Example Usage:")
         print("   click_element{bundleID: 'com.apple.calculator', element: {type: 'button', text: 'Clear'}}")
@@ -106,6 +110,8 @@ struct AppMCPDaemon: AsyncParsableCommand {
         print("   scroll_window{bundleID: 'com.apple.safari', deltaY: -100}")
         print("   capture_screenshot{bundleID: 'com.apple.weather'}")
         print("   find_elements{bundleID: 'com.apple.weather', type: 'button', limit: 5}")
+        print("   list_running_applications{}")
+        print("   list_application_windows{}")
         
         print("\n🎯 Element Types (User-Friendly):")
         print("   • button, textfield, text, image, menu, list, table, checkbox, radio, slider")
