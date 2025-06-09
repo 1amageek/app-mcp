@@ -698,28 +698,18 @@ public final class AppMCPServer: @unchecked Sendable {
         switch format.lowercased() {
         case "jpeg", "jpg":
             // Use lower quality for smaller file size
-            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.6) else {
+            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.4) else {
                 throw AppMCPError.systemError("Failed to convert screenshot to JPEG")
             }
             imageData = jpegData
             mimeType = "image/jpeg"
         default: // "png"
-            // Try JPEG for smaller size if PNG is too large
-            guard let pngData = ScreenCaptureUtility.convertToPNG(cgImage) else {
-                throw AppMCPError.systemError("Failed to convert screenshot to PNG")
+            // Always prefer JPEG for screenshots to reduce size
+            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.4) else {
+                throw AppMCPError.systemError("Failed to convert screenshot to JPEG")
             }
-            
-            // Check if PNG is too large (>500KB), convert to JPEG instead
-            if pngData.count > 500_000 {
-                guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.6) else {
-                    throw AppMCPError.systemError("Failed to convert large screenshot to JPEG")
-                }
-                imageData = jpegData
-                mimeType = "image/jpeg"
-            } else {
-                imageData = pngData
-                mimeType = "image/png"
-            }
+            imageData = jpegData
+            mimeType = "image/jpeg"
         }
         
         // Build response with window context but limit size
@@ -730,7 +720,7 @@ public final class AppMCPServer: @unchecked Sendable {
         
         // Check total response size (base64 is ~33% larger than binary)
         let base64Size = (imageData.count * 4) / 3
-        let maxAllowedSize = 800_000 // ~800KB for base64 data
+        let maxAllowedSize = 600_000 // ~600KB for base64 data to be safe
         
         if base64Size > maxAllowedSize {
             // Return metadata only if image is too large
