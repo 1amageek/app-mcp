@@ -14,14 +14,14 @@ AppMCP depends on AppPilot for all automation functionality, providing a clean M
 ## Important: How to Use AppMCP Tools Correctly
 
 ### Modern AppMCP Tool Usage
-AppMCP now provides a single unified `automation` tool with these actions:
-- `click`: Element-based or coordinate-based clicking (window context required)
-- `type`: Text input with element targeting or into focused element
-- `drag`: Drag operations between coordinates 
-- `scroll`: Scrolling with delta values
-- `wait`: Time-based waiting
-- `find`: Element discovery and listing
-- `screenshot`: Window capture
+AppMCP now provides 7 specialized MCP tools (redesigned December 2024):
+- `click_element`: Element-based or coordinate-based clicking with multi-button support
+- `input_text`: Text input with method selection (type/setValue) and element targeting
+- `drag_drop`: Drag operations between coordinates with configurable duration
+- `scroll_window`: Window scrolling with delta values and position targeting
+- `find_elements`: UI element discovery with filtering and user-friendly criteria
+- `capture_screenshot`: Window screenshot capture with format selection
+- `wait_time`: Time-based waiting operations
 
 ### Security Features - Window Context Required
 All operations now require window context for security:
@@ -112,8 +112,8 @@ swift package show-dependencies
 AppMCP is a Swift Package implementing Model Context Protocol (MCP) SDK v0.7.1 for macOS app automation. The architecture follows a clear separation of concerns:
 
 #### AppMCP Layer (MCP Interface)
-- **AppMCPServer**: Main MCP server implementing JSON-RPC automation tool
-- **Single Tool Design**: Unified `automation` tool with action-based dispatch
+- **AppMCPServer**: Main MCP server implementing JSON-RPC automation tools
+- **Specialized Tool Design**: 7 dedicated MCP tools with user-friendly element specification
 - **Resource Providers**: 
   - `running_applications`: List all running applications with metadata
   - `application_windows`: All application windows with bounds and visibility
@@ -146,7 +146,7 @@ AppMCP depends on AppPilot for all actual automation functionality:
 - **Protocol-Based Drivers**: Pluggable driver architecture for testing and extensibility
 
 ### Current Components
-- **AppMCPServer**: MCP protocol server with unified automation tool
+- **AppMCPServer**: MCP protocol server with 7 specialized automation tools
 - **AppPilot Integration**: Seamless integration with AppPilot automation core
 - **appmcpd**: CLI daemon executable for running the MCP server
 
@@ -250,32 +250,32 @@ When testing AppMCP tools:
 
 ## Current Development Focus
 
-### Modern AppMCP with AppPilot Integration (v1.0)
-**Target**: Provide robust, secure macOS UI automation through MCP protocol with element-based operations.
+### Modern AppMCP with Specialized MCP Tools (v1.0)
+**Target**: Provide robust, secure macOS UI automation through MCP protocol with specialized tools and user-friendly element specification.
 
-**Key Components Implemented**:
-- **Unified Automation Tool**: Single `automation` tool with action dispatch (click, type, drag, scroll, wait, find, screenshot)
-- **AppPilot Integration**: Full integration with AppPilot core for reliable automation
-- **Element-Based Operations**: Priority on UI element discovery and interaction over raw coordinates
-- **Window Context Security**: All operations require explicit app and window targeting
-- **Resource Providers**: Real-time application and window discovery
+**Major Architecture Redesign** (December 2024):
+AppMCP underwent a complete tool architecture redesign based on user feedback that the original unified tool was "too abstracted." The redesign focused on creating specialized tools with user-friendly element specification.
 
-**Success Criteria** (Achieved):
-- ✅ AI can identify and target applications by bundle ID or name
-- ✅ AI can discover and interact with UI elements reliably
-- ✅ AI can perform text input with proper element targeting
-- ✅ AI can capture screenshots of specific windows
-- ✅ All operations are secured with window context validation
-- ✅ Complete workflow works via MCP protocol with AppPilot backend
+#### Key Changes Implemented:
+1. **Tool Specialization**: Replaced single `automation` tool with 7 specialized MCP tools
+2. **User-Friendly Element Types**: Eliminated requirement for users to know internal AX role names
+3. **Element Type Mapping**: Automatic conversion from user types to internal accessibility roles
+4. **Test Code Separation**: Moved test helper methods from production to test-only code
+5. **Efficiency Prioritization**: Emphasized direct value setting over user simulation for performance
 
-### Weather App PoC Example Usage
-With the current implementation, Weather app automation works as follows:
+#### Specialized MCP Tools:
+- **`click_element`**: UI element and coordinate-based clicking with multi-button support
+- **`input_text`**: Text input with method selection (type/setValue) and element targeting
+- **`drag_drop`**: Drag and drop operations with configurable duration
+- **`scroll_window`**: Window scrolling with delta values and position targeting
+- **`find_elements`**: UI element discovery with filtering and user-friendly criteria
+- **`capture_screenshot`**: Window screenshot capture with format selection
+- **`wait_time`**: Time-based waiting operations
 
+#### User-Friendly Element Specification:
+**Before** (Internal AX Roles):
 ```json
 {
-  "action": "click",
-  "bundleID": "com.apple.weather",
-  "window": 0,
   "element": {
     "role": "AXTextField",
     "title": "Search"
@@ -283,10 +283,72 @@ With the current implementation, Weather app automation works as follows:
 }
 ```
 
+**After** (User-Friendly Types):
+```json
+{
+  "element": {
+    "type": "textfield",
+    "text": "Search"
+  }
+}
+```
+
+#### Element Type Mapping System:
+- **`button`** → `.button`, `.popUpButton`, `.menuBarItem`
+- **`textfield`** → `.textField`, `.searchField`
+- **`text`** → `.staticText`
+- **`image`** → `.image`
+- **`menu`** → `.menuBar`, `.menuItem`
+- **`list`** → `.list`
+- **`table`** → `.table`, `.cell`
+- **`checkbox`** → `.checkBox`
+- **`radio`** → `.radioButton`
+- **`slider`** → `.slider`
+
+#### Input Method Selection:
+- **`setValue`**: Direct value setting for efficiency (default for AppMCP)
+- **`type`**: Keystroke simulation for user-like behavior
+
+### Weather App Example Usage
+With the redesigned implementation, Weather app automation now works as follows:
+
+```javascript
+// Find and click search field
+await tools.click_element({
+  bundleID: "com.apple.weather",
+  element: {
+    type: "textfield"  // User-friendly type instead of "AXTextField"
+  }
+});
+
+// Input location efficiently
+await tools.input_text({
+  bundleID: "com.apple.weather",
+  text: "Tokyo",
+  method: "setValue"  // Direct setting for performance
+});
+
+// Press Enter to search
+await tools.input_text({
+  bundleID: "com.apple.weather", 
+  text: "\n",
+  method: "type"  // Keystroke simulation for special keys
+});
+```
+
 **Core Features Available**:
 - Application targeting by bundle ID (`com.apple.weather`)
 - Window resolution by title or index
-- Element-based clicking and typing
+- User-friendly element specification (no AX knowledge required)
+- Efficient text input with setValue method
 - Screenshot capture of specific windows
 - Wait operations for UI state changes
+- Specialized tools for each automation aspect
+
+### Implementation Quality Focus:
+- **Security**: All operations require window context validation
+- **Reliability**: Element-based operations with AppPilot integration
+- **Efficiency**: Direct value setting prioritized over simulation
+- **Maintainability**: Test code properly separated from production code
+- **User Experience**: No requirement for internal accessibility knowledge
 
