@@ -963,13 +963,42 @@ public final class AppMCPServer: @unchecked Sendable {
         // Use AppPilot to get real running applications
         let apps = try await pilot.listApplications()
         
-        let appData = apps.map { app in
-            [
+        var appData: [[String: Any]] = []
+        
+        for app in apps {
+            var appInfo: [String: Any] = [
                 "name": app.name,
                 "bundleID": app.bundleIdentifier ?? "unknown",
                 "handle": app.id.id,
                 "isActive": app.isActive
-            ] as [String: Any]
+            ]
+            
+            // Get windows for this application
+            do {
+                let windows = try await pilot.listWindows(app: app.id)
+                let windowData = windows.map { window in
+                    [
+                        "title": window.title ?? "Untitled",
+                        "handle": window.id.id,
+                        "bounds": [
+                            "x": window.bounds.origin.x,
+                            "y": window.bounds.origin.y,
+                            "width": window.bounds.size.width,
+                            "height": window.bounds.size.height
+                        ],
+                        "isVisible": window.isVisible,
+                        "isMain": window.isMain
+                    ] as [String: Any]
+                }
+                appInfo["windows"] = windowData
+                appInfo["windowCount"] = windows.count
+            } catch {
+                // If we can't get windows (permission issues), include empty array
+                appInfo["windows"] = []
+                appInfo["windowCount"] = 0
+            }
+            
+            appData.append(appInfo)
         }
         
         let data = try JSONSerialization.data(withJSONObject: ["applications": appData])
