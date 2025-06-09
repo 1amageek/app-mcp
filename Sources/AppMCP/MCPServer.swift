@@ -691,38 +691,69 @@ public final class AppMCPServer: @unchecked Sendable {
         // Use AppPilot's improved window-specific screenshot capability
         let cgImage = try await pilot.capture(window: window)
         
-        // Use AppPilot's ScreenCaptureUtility for image conversion
+        // Use AppPilot's ScreenCaptureUtility for image conversion with compression
         let imageData: Data
         let mimeType: String
         
         switch format.lowercased() {
         case "jpeg", "jpg":
-            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.8) else {
+            // Use lower quality for smaller file size
+            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.6) else {
                 throw AppMCPError.systemError("Failed to convert screenshot to JPEG")
             }
             imageData = jpegData
             mimeType = "image/jpeg"
         default: // "png"
+            // Try JPEG for smaller size if PNG is too large
             guard let pngData = ScreenCaptureUtility.convertToPNG(cgImage) else {
                 throw AppMCPError.systemError("Failed to convert screenshot to PNG")
             }
-            imageData = pngData
-            mimeType = "image/png"
+            
+            // Check if PNG is too large (>500KB), convert to JPEG instead
+            if pngData.count > 500_000 {
+                guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.6) else {
+                    throw AppMCPError.systemError("Failed to convert large screenshot to JPEG")
+                }
+                imageData = jpegData
+                mimeType = "image/jpeg"
+            } else {
+                imageData = pngData
+                mimeType = "image/png"
+            }
         }
         
-        // Build response with window context
-        let base64Data = imageData.base64EncodedString()
+        // Build response with window context but limit size
         let windowTitle = windowInfo?.title ?? "Unknown Window"
         let appName = windowInfo?.appName ?? "Unknown App"
         let dimensions = "\(cgImage.width)x\(cgImage.height)"
+        let fileSizeKB = String(format: "%.1f", Double(imageData.count) / 1024.0)
         
+        // Check total response size (base64 is ~33% larger than binary)
+        let base64Size = (imageData.count * 4) / 3
+        let maxAllowedSize = 800_000 // ~800KB for base64 data
+        
+        if base64Size > maxAllowedSize {
+            // Return metadata only if image is too large
+            return """
+            Screenshot captured but too large for direct transmission:
+            - Application: \(appName)
+            - Window: \(windowTitle)
+            - Dimensions: \(dimensions)
+            - Format: \(mimeType == "image/jpeg" ? "JPEG" : "PNG")
+            - Size: \(fileSizeKB) KB
+            
+            Image is too large (\(fileSizeKB) KB) for MCP response. Consider using a smaller window or requesting JPEG format with lower quality.
+            """
+        }
+        
+        let base64Data = imageData.base64EncodedString()
         return """
         Screenshot captured successfully:
         - Application: \(appName)
         - Window: \(windowTitle)
         - Dimensions: \(dimensions)
-        - Format: \(format.uppercased())
-        - Size: \(String(format: "%.1f", Double(imageData.count) / 1024.0)) KB
+        - Format: \(mimeType == "image/jpeg" ? "JPEG" : "PNG")
+        - Size: \(fileSizeKB) KB
         
         data:\(mimeType);base64,\(base64Data)
         """
