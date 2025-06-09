@@ -599,17 +599,8 @@ public final class AppMCPServer: @unchecked Sendable {
             return "No elements found matching criteria: \(criteriaDesc.isEmpty ? "all elements" : criteriaDesc)"
         }
         
-        let elementDescriptions = limitedElements.map { element in
-            let location = "(\(Int(element.centerPoint.x)), \(Int(element.centerPoint.y)))"
-            let userType = getUserFriendlyType(for: element.role)
-            return "\(userType) '\(element.title ?? element.id)' at \(location)"
-        }
-        
-        let summary = elementDescriptions.joined(separator: "\n")
-        let totalCount = elements.count
-        let hasMore = totalCount > limit
-        
-        return "Found \(totalCount) element\(totalCount == 1 ? "" : "s")\(hasMore ? " (showing first \(limit))" : ""):\n\(summary)"
+        // Build hierarchical structure
+        return try await buildHierarchicalResponse(elements: limitedElements, totalCount: elements.count, limit: limit)
     }
     
     private func getUserFriendlyType(for role: ElementRole) -> String {
@@ -997,6 +988,90 @@ public final class AppMCPServer: @unchecked Sendable {
         }
         
         return parts.isEmpty ? "no criteria" : parts.joined(separator: ", ")
+    }
+    
+    private func buildHierarchicalResponse(elements: [UIElement], totalCount: Int, limit: Int) async throws -> String {
+        // Group elements by functional areas
+        let functionalGroups = groupElementsByFunction(elements)
+        
+        var response = "Found \(totalCount) element\(totalCount == 1 ? "" : "s")"
+        if totalCount > limit {
+            response += " (showing first \(limit))"
+        }
+        response += ":\n"
+        
+        // Build structured output
+        for (groupName, groupElements) in functionalGroups {
+            response += "\n[\(groupName)]:\n"
+            for element in groupElements {
+                let shortInfo = buildElementSummary(element)
+                response += "  \(shortInfo)\n"
+            }
+        }
+        
+        return response
+    }
+    
+    private func groupElementsByFunction(_ elements: [UIElement]) -> [String: [UIElement]] {
+        var groups: [String: [UIElement]] = [:]
+        
+        for element in elements {
+            let groupName = determineElementGroup(element)
+            if groups[groupName] == nil {
+                groups[groupName] = []
+            }
+            groups[groupName]?.append(element)
+        }
+        
+        return groups
+    }
+    
+    private func determineElementGroup(_ element: UIElement) -> String {
+        let userType = getUserFriendlyType(for: element.role)
+        
+        // Group by UI patterns
+        if userType == "textfield" {
+            return "Input Fields"
+        } else if userType == "button" {
+            return "Controls"
+        } else if userType == "text" {
+            if let title = element.title, !title.isEmpty {
+                return "Content"
+            } else {
+                return "Labels"
+            }
+        } else if userType == "list" || userType == "table" {
+            return "Data"
+        } else if userType == "menu" {
+            return "Navigation"
+        } else {
+            return "Other"
+        }
+    }
+    
+    private func buildElementSummary(_ element: UIElement) -> String {
+        let userType = getUserFriendlyType(for: element.role)
+        let displayText = extractDisplayText(element)
+        let coordinates = "(\(Int(element.centerPoint.x)), \(Int(element.centerPoint.y)))"
+        
+        if !displayText.isEmpty {
+            return "\(userType): \"\(displayText)\" at \(coordinates)"
+        } else {
+            return "\(userType) at \(coordinates)"
+        }
+    }
+    
+    private func extractDisplayText(_ element: UIElement) -> String {
+        // Extract meaningful text, avoiding internal IDs
+        if let title = element.title, !title.isEmpty && !title.hasPrefix("win_") {
+            return title
+        }
+        if let value = element.value, !value.isEmpty && !value.hasPrefix("win_") {
+            return value
+        }
+        
+        // For elements without meaningful text, use role description
+        return ""
     }
     
     // MARK: - Server Lifecycle
