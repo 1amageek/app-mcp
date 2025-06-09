@@ -689,7 +689,10 @@ public final class AppMCPServer: @unchecked Sendable {
         let windowInfo = windows.first(where: { $0.id == window })
         
         // Use AppPilot's improved window-specific screenshot capability
-        let cgImage = try await pilot.capture(window: window)
+        let originalImage = try await pilot.capture(window: window)
+        
+        // Resize image to reasonable dimensions for MCP
+        let cgImage = resizeImageIfNeeded(originalImage, maxDimension: 600)
         
         // Use AppPilot's ScreenCaptureUtility for image conversion with compression
         let imageData: Data
@@ -747,6 +750,48 @@ public final class AppMCPServer: @unchecked Sendable {
         
         data:\(mimeType);base64,\(base64Data)
         """
+    }
+    
+    // MARK: - Image Processing Utilities
+    
+    private func resizeImageIfNeeded(_ image: CGImage, maxDimension: Int) -> CGImage {
+        let width = image.width
+        let height = image.height
+        let maxDim = max(width, height)
+        
+        // Return original if already small enough
+        if maxDim <= maxDimension {
+            return image
+        }
+        
+        // Calculate new dimensions maintaining aspect ratio
+        let scale = Double(maxDimension) / Double(maxDim)
+        let newWidth = Int(Double(width) * scale)
+        let newHeight = Int(Double(height) * scale)
+        
+        // Create resized image
+        guard let colorSpace = image.colorSpace,
+              let context = CGContext(
+                data: nil,
+                width: newWidth,
+                height: newHeight,
+                bitsPerComponent: image.bitsPerComponent,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: image.bitmapInfo.rawValue
+              ) else {
+            // Return original if resize fails
+            return image
+        }
+        
+        // Set high quality interpolation
+        context.interpolationQuality = .high
+        
+        // Draw resized image
+        context.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        
+        // Return resized image or original if creation fails
+        return context.makeImage() ?? image
     }
     
     // MARK: - Resource Handlers
