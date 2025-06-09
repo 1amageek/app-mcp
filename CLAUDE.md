@@ -352,3 +352,112 @@ await tools.input_text({
 - **Maintainability**: Test code properly separated from production code
 - **User Experience**: No requirement for internal accessibility knowledge
 
+## CRITICAL: Error Handling and Development Principles
+
+### Fail-Fast Philosophy
+**NEVER implement fallback mechanisms or catch-all error handling that masks bugs.**
+
+#### Core Principles:
+1. **Explicit Error Propagation**: All errors must be explicitly handled and propagated up the call stack
+2. **No Silent Failures**: Never catch exceptions and continue execution without proper error handling
+3. **Clear Error Messages**: Every error must provide specific, actionable information about what went wrong
+4. **Type Safety First**: Use Swift's type system to prevent runtime errors at compile time
+5. **Defensive Programming**: Validate inputs at API boundaries, but don't add redundant checks deeper in the stack
+
+#### Prohibited Patterns:
+```swift
+// ❌ NEVER DO THIS - Hides bugs
+func findElement() -> UIElement? {
+    do {
+        return try performFind()
+    } catch {
+        print("Error occurred: \(error)")
+        return nil  // Silent failure masks the real problem
+    }
+}
+
+// ❌ NEVER DO THIS - Overly defensive
+func processValue(_ value: MCP.Value?) -> String {
+    guard let value = value else { return "default" }
+    if case .string(let str) = value {
+        return str.isEmpty ? "fallback" : str
+    }
+    return "another_fallback"  // Masks type mismatches
+}
+```
+
+#### Correct Patterns:
+```swift
+// ✅ CORRECT - Explicit error propagation
+func findElement(criteria: ElementCriteria) throws -> UIElement {
+    guard !criteria.isEmpty else {
+        throw AppMCPError.invalidParameters("Element criteria cannot be empty")
+    }
+    
+    let elements = try performSearch(criteria)
+    guard let element = elements.first else {
+        throw AppMCPError.elementNotFound("No element found matching: \(criteria)")
+    }
+    
+    return element
+}
+
+// ✅ CORRECT - Type-safe parameter handling
+func extractRequiredString(from arguments: [String: MCP.Value], key: String) throws -> String {
+    guard let value = arguments[key] else {
+        throw AppMCPError.missingParameter(key)
+    }
+    
+    guard case .string(let str) = value else {
+        throw AppMCPError.invalidParameterType(key, expected: "string", got: "\(value)")
+    }
+    
+    return str
+}
+```
+
+### MCP Parameter Validation Strategy
+
+#### Input Validation Rules:
+1. **Validate at API entry points** (tool handlers)
+2. **Use type-safe extraction** methods with explicit error types
+3. **Validate business logic constraints** (e.g., non-empty criteria)
+4. **Propagate AppPilot errors** without modification
+5. **Never assume default values** unless explicitly documented in the API
+
+#### Tool Handler Pattern:
+```swift
+// ✅ CORRECT - Clean error propagation
+internal func handleClickElement(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+    do {
+        let result = try await performClick(arguments)
+        return CallTool.Result(content: [.text(result)])
+    } catch {
+        return CallTool.Result(
+            content: [.text("Error: \(error.localizedDescription)")],
+            isError: true
+        )
+    }
+}
+
+private func performClick(_ arguments: [String: MCP.Value]) async throws -> String {
+    let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+    let app = try await pilot.findApplication(bundleId: bundleID)
+    // ... rest of implementation with explicit error propagation
+}
+```
+
+### Testing Philosophy
+1. **Test error paths explicitly** - Every error condition must have a corresponding test
+2. **Use integration tests** to verify end-to-end behavior with real AppPilot
+3. **Mock only external dependencies** - Never mock internal AppMCP logic
+4. **Verify error messages** in tests to ensure they provide actionable information
+
+### Debugging Guidelines
+1. **Add structured logging** at key decision points, not as error recovery
+2. **Use breakpoints and debugger** instead of try-catch blocks for investigation
+3. **Log successful operations** at appropriate log levels for traceability
+4. **Include relevant context** in error messages (element criteria, app state, etc.)
+
+This approach ensures bugs are discovered quickly during development and provides clear error information to users, rather than masking problems with fallback behavior.
+

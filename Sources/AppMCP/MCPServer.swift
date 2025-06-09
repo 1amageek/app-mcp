@@ -359,8 +359,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 throw AppMCPError.invalidParameters("Missing 'text' parameter")
             }
             
-            let method = extractStringValue(arguments["method"]) ?? "type"
-            let clearFirst = extractBoolValue(arguments["clearFirst"]) ?? false
+            let method = extractOptionalString(from: arguments, key: "method") ?? "type"
+            let clearFirst = extractOptionalBool(from: arguments, key: "clearFirst") ?? false
             
             let result: String
             if method == "setValue" {
@@ -466,22 +466,44 @@ public final class AppMCPServer: @unchecked Sendable {
     // MARK: - Action Implementations
     
     private func performClick(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        // Extract required bundleID using type-safe method
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
         
-        if let elementValue = arguments["element"] {
-            // Element-based click
-            let element = try await findElement(in: window, using: elementValue)
+        // Resolve app and window
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
+        
+        // Check for element parameter first (preferred method)
+        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
+            let element = try await findElementWithCriteria(elementObject, in: window)
             _ = try await pilot.clickElement(element, in: window)
             return "Clicked element \(element.role.rawValue) '\(element.title ?? element.id)' at (\(element.centerPoint.x), \(element.centerPoint.y))"
-        } else if case .object(let coords) = arguments["coordinates"],
-                  case .double(let x) = coords["x"],
-                  case .double(let y) = coords["y"] {
-            // Coordinate-based click
+        }
+        
+        // Fallback to coordinate-based click
+        if let coordinatesObject = extractOptionalObject(from: arguments, key: "coordinates") {
+            let x = try extractRequiredDouble(from: coordinatesObject, key: "x")
+            let y = try extractRequiredDouble(from: coordinatesObject, key: "y")
             let point = Point(x: x, y: y)
             _ = try await pilot.click(window: window, at: point)
             return "Clicked at coordinates (\(x), \(y))"
-        } else {
-            throw AppMCPError.invalidParameters("Missing 'element' or 'coordinates' parameter for click action")
+        }
+        
+        throw AppMCPError.invalidParameters("Either 'element' or 'coordinates' parameter is required")
+    }
+    
+    private func extractRequiredDouble(from arguments: [String: MCP.Value], key: String) throws -> Double {
+        guard let value = arguments[key] else {
+            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+        }
+        
+        switch value {
+        case .double(let d):
+            return d
+        case .int(let i):
+            return Double(i)
+        default:
+            throw AppMCPError.invalidParameters("Parameter '\(key)' must be a number, got: \(value)")
         }
     }
     
@@ -490,11 +512,13 @@ public final class AppMCPServer: @unchecked Sendable {
             throw AppMCPError.invalidParameters("Missing 'text' parameter")
         }
         
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
-        if let elementValue = arguments["element"] {
+        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
             // Set text directly using AppPilot's setValue method (fast, direct)
-            let element = try await findElement(in: window, using: elementValue)
+            let element = try await findElementWithCriteria(elementObject, in: window)
             let result = try await pilot.setValue(text, for: element)
             let actualText: String
             if case .setValue(_, let actual) = result.data {
@@ -513,10 +537,12 @@ public final class AppMCPServer: @unchecked Sendable {
             throw AppMCPError.invalidParameters("Missing 'text' parameter")
         }
         
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
-        if let elementValue = arguments["element"] {
-            let element = try await findElement(in: window, using: elementValue)
+        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
+            let element = try await findElementWithCriteria(elementObject, in: window)
             
             if clearFirst {
                 // Clear existing text first
@@ -543,7 +569,9 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performDrag(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
         guard case .object(let fromCoords) = arguments["from"],
               case .double(let startX) = fromCoords["x"],
@@ -569,35 +597,22 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performScroll(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
-        let deltaX: Double
-        if case .double(let dx) = arguments["deltaX"] {
-            deltaX = dx
-        } else if case .int(let dx) = arguments["deltaX"] {
-            deltaX = Double(dx)
-        } else {
-            deltaX = 0.0
-        }
-        
-        let deltaY: Double
-        if case .double(let dy) = arguments["deltaY"] {
-            deltaY = dy
-        } else if case .int(let dy) = arguments["deltaY"] {
-            deltaY = Double(dy)
-        } else {
-            throw AppMCPError.invalidParameters("Missing 'deltaY' parameter for scroll action")
-        }
+        let deltaX = extractOptionalDouble(from: arguments, key: "deltaX") ?? 0.0
+        let deltaY = try extractRequiredDouble(from: arguments, key: "deltaY")
         
         // Get scroll position - use window center if no coordinates specified
         let point: Point
-        if case .object(let coords) = arguments["position"],
-           case .double(let x) = coords["x"],
-           case .double(let y) = coords["y"] {
+        if let positionObject = extractOptionalObject(from: arguments, key: "position") {
+            let x = try extractRequiredDouble(from: positionObject, key: "x")
+            let y = try extractRequiredDouble(from: positionObject, key: "y")
             point = Point(x: x, y: y)
         } else {
             // Use window center for scroll
-            let windows = try await pilot.listWindows(app: try await resolveApp(arguments))
+            let windows = try await pilot.listWindows(app: app)
             if let windowInfo = windows.first(where: { $0.id == window }) {
                 let bounds = windowInfo.bounds
                 point = Point(x: bounds.midX, y: bounds.midY)
@@ -627,9 +642,11 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performFind(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (_, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
-        let limit = extractIntValue(arguments["limit"]) ?? 10
+        let limit = extractOptionalDouble(from: arguments, key: "limit").map { Int($0) } ?? 10
         
         // Create criteria from arguments (excluding bundleID, window, and limit)
         var criteria: [String: MCP.Value] = [:]
@@ -639,8 +656,23 @@ public final class AppMCPServer: @unchecked Sendable {
             }
         }
         
-        // Find elements with user-friendly criteria
-        let elements = try await findElementsByUserCriteria(in: window, criteria: criteria)
+        // Find elements with user-friendly criteria using type-safe method
+        let userType = extractOptionalString(from: criteria, key: "type")
+        let exactText = extractOptionalString(from: criteria, key: "text")
+        let containingText = extractOptionalString(from: criteria, key: "containing")
+        let placeholderText = extractOptionalString(from: criteria, key: "placeholder")
+        let labelText = extractOptionalString(from: criteria, key: "label")
+        let index = extractOptionalDouble(from: criteria, key: "index").map { Int($0) }
+        
+        let elements = try await findElementsWithTypeSafeCriteria(
+            in: window,
+            userType: userType,
+            exactText: exactText,
+            containingText: containingText,
+            placeholderText: placeholderText,
+            labelText: labelText,
+            index: index
+        )
         let limitedElements = Array(elements.prefix(limit))
         
         if limitedElements.isEmpty {
@@ -680,9 +712,11 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performScreenshot(_ arguments: [String: MCP.Value]) async throws -> String {
-        let (app, window) = try await resolveAppAndWindow(arguments)
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
         
-        let format = extractStringValue(arguments["format"]) ?? "png"
+        let format = extractOptionalString(from: arguments, key: "format") ?? "png"
         
         // Get window information for context
         let windows = try await pilot.listWindows(app: app)
@@ -895,11 +929,61 @@ public final class AppMCPServer: @unchecked Sendable {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
     
-    // MARK: - Helper Methods
+    // MARK: - Type-Safe Parameter Extraction
     
-    private func extractStringValue(_ value: MCP.Value?) -> String? {
+    private func extractRequiredString(from arguments: [String: MCP.Value], key: String) throws -> String {
+        guard let value = arguments[key] else {
+            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+        }
+        
+        guard case .string(let str) = value else {
+            throw AppMCPError.invalidParameters("Parameter '\(key)' must be a string, got: \(value)")
+        }
+        
+        return str
+    }
+    
+    private func extractOptionalString(from arguments: [String: MCP.Value], key: String) -> String? {
+        guard let value = arguments[key] else { return nil }
         guard case .string(let str) = value else { return nil }
         return str
+    }
+    
+    private func extractRequiredObject(from arguments: [String: MCP.Value], key: String) throws -> [String: MCP.Value] {
+        guard let value = arguments[key] else {
+            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+        }
+        
+        guard case .object(let obj) = value else {
+            throw AppMCPError.invalidParameters("Parameter '\(key)' must be an object, got: \(value)")
+        }
+        
+        return obj
+    }
+    
+    private func extractOptionalObject(from arguments: [String: MCP.Value], key: String) -> [String: MCP.Value]? {
+        guard let value = arguments[key] else { return nil }
+        guard case .object(let obj) = value else { return nil }
+        return obj
+    }
+    
+    private func extractOptionalDouble(from arguments: [String: MCP.Value], key: String) -> Double? {
+        guard let value = arguments[key] else { return nil }
+        
+        switch value {
+        case .double(let d):
+            return d
+        case .int(let i):
+            return Double(i)
+        default:
+            return nil
+        }
+    }
+    
+    private func extractOptionalBool(from arguments: [String: MCP.Value], key: String) -> Bool? {
+        guard let value = arguments[key] else { return nil }
+        guard case .bool(let bool) = value else { return nil }
+        return bool
     }
     
     // MARK: - User-Friendly Element Type Mapping
@@ -932,15 +1016,83 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    private func findElementsByUserCriteria(in window: WindowHandle, criteria: [String: MCP.Value]) async throws -> [UIElement] {
-        // Extract user-friendly criteria
-        let userType = extractStringValue(criteria["type"])
-        let exactText = extractStringValue(criteria["text"])
-        let containingText = extractStringValue(criteria["containing"])
-        let placeholderText = extractStringValue(criteria["placeholder"])
-        let labelText = extractStringValue(criteria["label"])
-        let index = extractIntValue(criteria["index"])
+    
+    
+    
+    private func resolveWindow(from arguments: [String: MCP.Value], for app: AppHandle) async throws -> WindowHandle {
+        // Check for explicit window parameter
+        if let windowTitle = extractOptionalString(from: arguments, key: "window") {
+            guard let window = try await pilot.findWindow(app: app, title: windowTitle) else {
+                throw AppMCPError.windowNotFound("Window with title '\(windowTitle)' not found")
+            }
+            return window
+        }
         
+        // Check for window index
+        if let windowIndex = extractOptionalDouble(from: arguments, key: "window") {
+            let index = Int(windowIndex)
+            guard let window = try await pilot.findWindow(app: app, index: index) else {
+                throw AppMCPError.windowNotFound("Window at index \(index) not found")
+            }
+            return window
+        }
+        
+        // Default to main window, then first available window
+        let windows = try await pilot.listWindows(app: app)
+        
+        if let mainWindow = windows.first(where: { $0.isMain }) {
+            return mainWindow.id
+        }
+        
+        if let firstWindow = windows.first {
+            return firstWindow.id
+        }
+        
+        throw AppMCPError.windowNotFound("No windows found for application")
+    }
+    
+    private func findElementWithCriteria(_ criteria: [String: MCP.Value], in window: WindowHandle) async throws -> UIElement {
+        // Validate criteria is not empty
+        guard !criteria.isEmpty else {
+            throw AppMCPError.invalidParameters("Element criteria cannot be empty")
+        }
+        
+        // Extract search criteria using type-safe methods
+        let userType = extractOptionalString(from: criteria, key: "type")
+        let exactText = extractOptionalString(from: criteria, key: "text")
+        let containingText = extractOptionalString(from: criteria, key: "containing")
+        let placeholderText = extractOptionalString(from: criteria, key: "placeholder")
+        let labelText = extractOptionalString(from: criteria, key: "label")
+        let index = extractOptionalDouble(from: criteria, key: "index").map { Int($0) }
+        
+        // Convert to internal search criteria
+        let elements = try await findElementsWithTypeSafeCriteria(
+            in: window,
+            userType: userType,
+            exactText: exactText,
+            containingText: containingText,
+            placeholderText: placeholderText,
+            labelText: labelText,
+            index: index
+        )
+        
+        guard let element = elements.first else {
+            let criteriaDesc = describeCriteria(criteria)
+            throw AppMCPError.elementNotFound("No element found matching criteria: \(criteriaDesc)")
+        }
+        
+        return element
+    }
+    
+    private func findElementsWithTypeSafeCriteria(
+        in window: WindowHandle,
+        userType: String?,
+        exactText: String?,
+        containingText: String?,
+        placeholderText: String?,
+        labelText: String?,
+        index: Int?
+    ) async throws -> [UIElement] {
         // Convert user type to internal element roles
         let targetRoles: [ElementRole]?
         if let userType = userType {
@@ -949,56 +1101,43 @@ public final class AppMCPServer: @unchecked Sendable {
             targetRoles = nil
         }
         
-        // Find all elements matching the criteria
+        // Find all elements matching the roles
         var matchingElements: [UIElement] = []
         
         if let roles = targetRoles {
-            // Search by specific roles
             for role in roles {
                 let elementsForRole = try await pilot.findElements(in: window, role: role, title: nil, identifier: nil)
                 matchingElements.append(contentsOf: elementsForRole)
             }
         } else {
-            // Search all elements
             matchingElements = try await pilot.findElements(in: window)
         }
         
-        // Filter by text criteria
+        // Apply text-based filters
         matchingElements = matchingElements.filter { element in
-            // Check exact text match
+            // Exact text match
             if let exactText = exactText {
-                if element.title == exactText || element.value == exactText {
-                    return true
-                }
-                // Also check if element has this text as accessibility label
-                if element.id.contains(exactText) {
-                    return true
-                }
-                return false
+                return element.title == exactText || element.value == exactText
             }
             
-            // Check containing text (partial match)
+            // Containing text match
             if let containingText = containingText {
-                let elementTexts = [element.title, element.value, element.id].compactMap { $0 }
+                let elementTexts = [element.title, element.value].compactMap { $0 }
                 return elementTexts.contains { text in
                     text.localizedCaseInsensitiveContains(containingText)
                 }
             }
             
-            // Check placeholder text (for text fields)
+            // Placeholder text (for text fields)
             if let placeholderText = placeholderText {
-                // Placeholder text is often stored in accessibility properties
-                return element.title?.localizedCaseInsensitiveContains(placeholderText) == true ||
-                       element.id.localizedCaseInsensitiveContains(placeholderText)
+                return element.title?.localizedCaseInsensitiveContains(placeholderText) == true
             }
             
-            // Check label text
+            // Label text
             if let labelText = labelText {
-                return element.title?.localizedCaseInsensitiveContains(labelText) == true ||
-                       element.id.localizedCaseInsensitiveContains(labelText)
+                return element.title?.localizedCaseInsensitiveContains(labelText) == true
             }
             
-            // If no specific text criteria, include all elements
             return true
         }
         
@@ -1013,106 +1152,27 @@ public final class AppMCPServer: @unchecked Sendable {
         return matchingElements
     }
     
-    private func extractIntValue(_ value: MCP.Value?) -> Int? {
-        switch value {
-        case .int(let int):
-            return int
-        case .double(let double):
-            return Int(double)
-        default:
-            return nil
-        }
-    }
-    
-    private func extractBoolValue(_ value: MCP.Value?) -> Bool? {
-        guard case .bool(let bool) = value else { return nil }
-        return bool
-    }
-    
-    private func resolveApp(_ arguments: [String: MCP.Value]) async throws -> AppHandle {
-        // Try bundle ID first (more specific)
-        if case .string(let bundleID) = arguments["bundleID"] {
-            return try await pilot.findApplication(bundleId: bundleID)
-        }
-        
-        // Then try app name
-        if case .string(let appName) = arguments["appName"] {
-            return try await pilot.findApplication(name: appName)
-        }
-        
-        throw AppMCPError.invalidParameters("Missing 'appName' or 'bundleID' parameter")
-    }
-    
-    private func resolveAppAndWindow(_ arguments: [String: MCP.Value]) async throws -> (AppHandle, WindowHandle) {
-        // Get application
-        let app = try await resolveApp(arguments)
-        
-        // Get window (optional for some actions)
-        let window: WindowHandle
-        if case .string(let windowTitle) = arguments["window"] {
-            guard let foundWindow = try await pilot.findWindow(app: app, title: windowTitle) else {
-                throw AppMCPError.windowNotFound("Window with title '\(windowTitle)' not found")
-            }
-            window = foundWindow
-        } else if case .int(let index) = arguments["window"] {
-            guard let foundWindow = try await pilot.findWindow(app: app, index: index) else {
-                throw AppMCPError.windowNotFound("Window at index \(index) not found")
-            }
-            window = foundWindow
-        } else {
-            // Default to main window first, then fallback to first window
-            let windows = try await pilot.listWindows(app: app)
-            
-            // Try to find the main window first
-            if let mainWindow = windows.first(where: { $0.isMain }) {
-                window = mainWindow.id
-            } else if let firstWindow = windows.first {
-                // Fallback to first available window
-                window = firstWindow.id
-            } else {
-                throw AppMCPError.windowNotFound("No windows found for application")
-            }
-        }
-        
-        return (app, window)
-    }
-    
-    private func findElement(in window: WindowHandle, using elementValue: MCP.Value?) async throws -> UIElement {
-        guard case .object(let elementParams) = elementValue else {
-            throw AppMCPError.invalidParameters("Missing element parameters")
-        }
-        
-        // Use new user-friendly element finding
-        let matchingElements = try await findElementsByUserCriteria(in: window, criteria: elementParams)
-        
-        guard let element = matchingElements.first else {
-            let criteriaDesc = describeCriteria(elementParams)
-            throw AppMCPError.elementNotFound("No element found matching criteria: \(criteriaDesc)")
-        }
-        
-        return element
-    }
     
     private func describeCriteria(_ criteria: [String: MCP.Value]) -> String {
         var parts: [String] = []
         
-        if let type = extractStringValue(criteria["type"]) {
+        if let type = extractOptionalString(from: criteria, key: "type") {
             parts.append("type=\(type)")
         }
-        if let text = extractStringValue(criteria["text"]) {
+        if let text = extractOptionalString(from: criteria, key: "text") {
             parts.append("text='\(text)'")
         }
-        if let containing = extractStringValue(criteria["containing"]) {
+        if let containing = extractOptionalString(from: criteria, key: "containing") {
             parts.append("containing='\(containing)'")
         }
-        if let placeholder = extractStringValue(criteria["placeholder"]) {
+        if let placeholder = extractOptionalString(from: criteria, key: "placeholder") {
             parts.append("placeholder='\(placeholder)'")
         }
-        if let label = extractStringValue(criteria["label"]) {
+        if let label = extractOptionalString(from: criteria, key: "label") {
             parts.append("label='\(label)'")
         }
-        if let index = extractIntValue(criteria["index"]) {
-            parts.append("index=\(index)")
+        if let index = extractOptionalDouble(from: criteria, key: "index") {
+            parts.append("index=\(Int(index))")
         }
         
         return parts.isEmpty ? "no criteria" : parts.joined(separator: ", ")
