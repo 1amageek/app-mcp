@@ -684,28 +684,22 @@ public final class AppMCPServer: @unchecked Sendable {
         
         let format = extractStringValue(arguments["format"]) ?? "png"
         
-        // Use AppPilot's screenshot capability
+        // Use AppPilot's improved window-specific screenshot capability
         let cgImage = try await pilot.capture(window: window)
         
-        // Convert CGImage to requested format
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            throw AppMCPError.systemError("Failed to create bitmap from screenshot")
-        }
-        
+        // Use AppPilot's ScreenCaptureUtility for image conversion
         let imageData: Data
         let mimeType: String
         
         switch format.lowercased() {
         case "jpeg", "jpg":
-            guard let jpegData = bitmap.representation(using: .jpeg, properties: [:]) else {
+            guard let jpegData = ScreenCaptureUtility.convertToJPEG(cgImage, quality: 0.8) else {
                 throw AppMCPError.systemError("Failed to convert screenshot to JPEG")
             }
             imageData = jpegData
             mimeType = "image/jpeg"
         default: // "png"
-            guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            guard let pngData = ScreenCaptureUtility.convertToPNG(cgImage) else {
                 throw AppMCPError.systemError("Failed to convert screenshot to PNG")
             }
             imageData = pngData
