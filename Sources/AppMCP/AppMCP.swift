@@ -40,6 +40,8 @@ public enum AppMCPError: Swift.Error, Sendable {
     case elementNotFound(String)
     case permissionDenied(String)
     case systemError(String)
+    case missingParameter(String)
+    case invalidParameterType(String, expected: String, got: String)
     
     public var localizedDescription: String {
         switch self {
@@ -55,6 +57,10 @@ public enum AppMCPError: Swift.Error, Sendable {
             return "Permission denied: \(msg)"
         case .systemError(let msg):
             return "System error: \(msg)"
+        case .missingParameter(let param):
+            return "Missing required parameter: \(param)"
+        case .invalidParameterType(let param, let expected, let got):
+            return "Parameter '\(param)' must be \(expected), got \(got)"
         }
     }
 }

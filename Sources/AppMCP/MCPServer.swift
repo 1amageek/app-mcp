@@ -494,7 +494,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func extractRequiredDouble(from arguments: [String: MCP.Value], key: String) throws -> Double {
         guard let value = arguments[key] else {
-            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+            throw AppMCPError.missingParameter(key)
         }
         
         switch value {
@@ -503,7 +503,7 @@ public final class AppMCPServer: @unchecked Sendable {
         case .int(let i):
             return Double(i)
         default:
-            throw AppMCPError.invalidParameters("Parameter '\(key)' must be a number, got: \(value)")
+            throw AppMCPError.invalidParameterType(key, expected: "number", got: "\(value)")
         }
     }
     
@@ -933,11 +933,11 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func extractRequiredString(from arguments: [String: MCP.Value], key: String) throws -> String {
         guard let value = arguments[key] else {
-            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+            throw AppMCPError.missingParameter(key)
         }
         
         guard case .string(let str) = value else {
-            throw AppMCPError.invalidParameters("Parameter '\(key)' must be a string, got: \(value)")
+            throw AppMCPError.invalidParameterType(key, expected: "string", got: "\(value)")
         }
         
         return str
@@ -951,11 +951,11 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func extractRequiredObject(from arguments: [String: MCP.Value], key: String) throws -> [String: MCP.Value] {
         guard let value = arguments[key] else {
-            throw AppMCPError.invalidParameters("Missing required parameter: \(key)")
+            throw AppMCPError.missingParameter(key)
         }
         
         guard case .object(let obj) = value else {
-            throw AppMCPError.invalidParameters("Parameter '\(key)' must be an object, got: \(value)")
+            throw AppMCPError.invalidParameterType(key, expected: "object", got: "\(value)")
         }
         
         return obj
