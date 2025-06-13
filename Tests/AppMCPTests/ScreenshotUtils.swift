@@ -32,19 +32,33 @@ struct ScreenshotUtils {
             return nil
         }
         
-        // Determine MIME type and file extension
-        let (mimeType, fileExtension) = format.lowercased() == "jpeg" || format.lowercased() == "jpg" 
-            ? ("image/jpeg", "jpg") 
-            : ("image/png", "png")
+        // Determine file extension based on format
+        let fileExtension = format.lowercased() == "jpeg" || format.lowercased() == "jpg" 
+            ? "jpg" 
+            : "png"
         
-        // Verify data URL format
-        guard base64Data.hasPrefix("data:\(mimeType);base64,") else {
+        // Extract data URL from the response (it's on the last line)
+        let lines = base64Data.components(separatedBy: .newlines)
+        let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
+        
+        // Verify data URL format (accept both PNG and JPEG as AppMCP may optimize)
+        let hasValidFormat = dataURL.hasPrefix("data:image/png;base64,") || 
+                           dataURL.hasPrefix("data:image/jpeg;base64,")
+        guard hasValidFormat else {
             print("❌ Invalid data URL format for \(bundleID)")
             return nil
         }
         
-        // Extract base64 string
-        let base64String = String(base64Data.dropFirst("data:\(mimeType);base64,".count))
+        // Extract base64 string based on actual format
+        let base64String: String
+        if dataURL.hasPrefix("data:image/png;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/png;base64,".count))
+        } else if dataURL.hasPrefix("data:image/jpeg;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/jpeg;base64,".count))
+        } else {
+            print("❌ Unexpected data format for \(bundleID)")
+            return nil
+        }
         
         // Decode base64 to Data
         guard let imageData = Data(base64Encoded: base64String) else {

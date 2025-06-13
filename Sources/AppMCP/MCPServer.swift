@@ -3,6 +3,11 @@ import MCP
 import AppPilot
 import AppKit
 
+// MARK: - AppPilot Compatibility Notes
+// AppPilot v3.0+ removed the UIElement.id property
+// Use element.identifier for accessibility identifiers
+// Use getElementDescription() for user-friendly element descriptions
+
 /// Modern MCP Server for macOS UI automation powered by AppPilot
 public final class AppMCPServer: @unchecked Sendable {
     
@@ -25,9 +30,55 @@ public final class AppMCPServer: @unchecked Sendable {
         Task { await setupHandlers() }
     }
     
+    /// Check if required AppPilot capabilities are available
+    private func validateAppPilotCapabilities() async throws {
+        // Verify we can list applications (basic capability check)
+        do {
+            _ = try await pilot.listApplications()
+        } catch {
+            throw AppMCPError.systemError("AppPilot initialization failed. Ensure accessibility permissions are granted: \(error.localizedDescription)")
+        }
+    }
+    
     private func setupHandlers() async {
         await setupToolHandlers()
         await setupResourceHandlers()
+    }
+    
+    // MARK: - Element Identification Helpers
+    
+    /// Validate that an element is accessible and can be interacted with
+    private func validateElementAccessibility(_ element: AIElement) throws {
+        // Check if element has a valid center point
+        if element.centerPoint.x == 0 && element.centerPoint.y == 0 {
+            throw AppMCPError.elementNotAccessible("Element has no valid position")
+        }
+        
+        // Check bounds if available
+        if let bounds = element.bounds, bounds.count >= 4 {
+            let width = bounds[2]
+            let height = bounds[3]
+            if width <= 0 || height <= 0 {
+                throw AppMCPError.elementNotAccessible("Element has invalid bounds: width=\(width), height=\(height)")
+            }
+        }
+        
+        // Additional validation can be added here as AppPilot API evolves
+    }
+    
+    /// Get a human-readable description for an element for error messages
+    private func getElementDescription(_ element: AIElement) -> String {
+        if let title = element.title, !title.isEmpty {
+            return title
+        } else if let identifier = element.identifier, !identifier.isEmpty {
+            return identifier
+        } else if let value = element.value, !value.isEmpty {
+            return value
+        } else if let role = element.role {
+            return "\(role.rawValue) element"
+        } else {
+            return "UI element"
+        }
     }
     
     // MARK: - Tool Handlers
@@ -38,296 +89,95 @@ public final class AppMCPServer: @unchecked Sendable {
                 // Basic Operations
                 MCP.Tool(
                     name: "click_element",
-                    description: "Click on UI elements or coordinates",
+                    description: "Click UI elements using element IDs from capture_ui_snapshot",
                     inputSchema: [
                         "type": "object",
                         "properties": [
-                            "bundleID": [
+                            "elementId": [
                                 "type": "string",
-                                "description": "Target application bundle ID (e.g., 'com.apple.calculator')"
-                            ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
-                            ],
-                            "element": [
-                                "type": "object",
-                                "properties": [
-                                    "type": [
-                                        "type": "string",
-                                        "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"],
-                                        "description": "Type of UI element"
-                                    ],
-                                    "text": [
-                                        "type": "string",
-                                        "description": "Exact text displayed on or in the element"
-                                    ],
-                                    "placeholder": [
-                                        "type": "string",
-                                        "description": "Placeholder text for text fields"
-                                    ],
-                                    "label": [
-                                        "type": "string",
-                                        "description": "Accessibility label of the element"
-                                    ],
-                                    "containing": [
-                                        "type": "string",
-                                        "description": "Text that the element contains (partial match)"
-                                    ],
-                                    "index": [
-                                        "type": "number",
-                                        "description": "Index of the element when multiple elements match (0-based)"
-                                    ]
-                                ],
-                                "description": "Target UI element (preferred method)"
-                            ],
-                            "coordinates": [
-                                "type": "object",
-                                "properties": [
-                                    "x": [
-                                        "type": "number",
-                                        "description": "X coordinate"
-                                    ],
-                                    "y": [
-                                        "type": "number",
-                                        "description": "Y coordinate"
-                                    ]
-                                ],
-                                "description": "Screen coordinates (fallback when element not available)"
+                                "description": "Element ID from capture_ui_snapshot"
                             ],
                             "button": [
                                 "type": "string",
                                 "enum": ["left", "right", "center"],
-                                "description": "Mouse button to click (default: left)"
+                                "description": "Mouse button (default: left)"
                             ],
-                            "clickCount": [
+                            "count": [
                                 "type": "number",
-                                "description": "Number of clicks (default: 1)"
+                                "description": "Click count (default: 1)"
                             ]
                         ],
-                        "required": ["bundleID"]
+                        "required": ["elementId"]
                     ]
                 ),
                 
                 MCP.Tool(
                     name: "input_text",
-                    description: "Input text into text fields or focused elements",
+                    description: "Input text into elements using element IDs from capture_ui_snapshot",
                     inputSchema: [
                         "type": "object",
                         "properties": [
-                            "bundleID": [
+                            "elementId": [
                                 "type": "string",
-                                "description": "Target application bundle ID"
-                            ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
+                                "description": "Element ID from capture_ui_snapshot"
                             ],
                             "text": [
                                 "type": "string",
                                 "description": "Text to input"
                             ],
-                            "element": [
-                                "type": "object",
-                                "properties": [
-                                    "type": [
-                                        "type": "string",
-                                        "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"],
-                                        "description": "Type of UI element"
-                                    ],
-                                    "text": [
-                                        "type": "string",
-                                        "description": "Exact text displayed on or in the element"
-                                    ],
-                                    "placeholder": [
-                                        "type": "string",
-                                        "description": "Placeholder text for text fields"
-                                    ],
-                                    "label": [
-                                        "type": "string",
-                                        "description": "Accessibility label of the element"
-                                    ],
-                                    "containing": [
-                                        "type": "string",
-                                        "description": "Text that the element contains (partial match)"
-                                    ],
-                                    "index": [
-                                        "type": "number",
-                                        "description": "Index of the element when multiple elements match (0-based)"
-                                    ]
-                                ],
-                                "description": "Target text field (optional, uses focused element if not specified)"
-                            ],
                             "method": [
                                 "type": "string",
                                 "enum": ["type", "setValue"],
-                                "description": "Input method: type (keystroke simulation) or setValue (direct value setting, default: type)"
-                            ],
-                            "clearFirst": [
-                                "type": "boolean",
-                                "description": "Clear existing text before input (default: false)"
+                                "description": "Input method (default: type)"
                             ]
                         ],
-                        "required": ["bundleID", "text"]
+                        "required": ["elementId", "text"]
                     ]
                 ),
                 
                 MCP.Tool(
                     name: "drag_drop",
-                    description: "Perform drag and drop operations",
+                    description: "Perform drag and drop operations using element IDs from capture_ui_snapshot",
                     inputSchema: [
                         "type": "object",
                         "properties": [
-                            "bundleID": [
+                            "fromElementId": [
                                 "type": "string",
-                                "description": "Target application bundle ID"
+                                "description": "Source element ID"
                             ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
-                            ],
-                            "from": [
-                                "type": "object",
-                                "properties": [
-                                    "x": [
-                                        "type": "number",
-                                        "description": "Start X coordinate"
-                                    ],
-                                    "y": [
-                                        "type": "number",
-                                        "description": "Start Y coordinate"
-                                    ]
-                                ],
-                                "required": ["x", "y"],
-                                "description": "Start point for drag"
-                            ],
-                            "to": [
-                                "type": "object",
-                                "properties": [
-                                    "x": [
-                                        "type": "number",
-                                        "description": "End X coordinate"
-                                    ],
-                                    "y": [
-                                        "type": "number",
-                                        "description": "End Y coordinate"
-                                    ]
-                                ],
-                                "required": ["x", "y"],
-                                "description": "End point for drag"
+                            "toElementId": [
+                                "type": "string",
+                                "description": "Target element ID"
                             ],
                             "duration": [
                                 "type": "number",
                                 "description": "Duration in seconds (default: 1.0)"
                             ]
                         ],
-                        "required": ["bundleID", "from", "to"]
+                        "required": ["fromElementId", "toElementId"]
                     ]
                 ),
                 
                 MCP.Tool(
                     name: "scroll_window",
-                    description: "Scroll within a window",
+                    description: "Scroll at element location using element ID from capture_ui_snapshot",
                     inputSchema: [
                         "type": "object",
                         "properties": [
-                            "bundleID": [
+                            "elementId": [
                                 "type": "string",
-                                "description": "Target application bundle ID"
-                            ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
+                                "description": "Element ID for scroll location"
                             ],
                             "deltaX": [
                                 "type": "number",
-                                "description": "Horizontal scroll amount (positive = right, negative = left, default: 0)"
+                                "description": "Horizontal scroll amount (default: 0)"
                             ],
                             "deltaY": [
                                 "type": "number",
-                                "description": "Vertical scroll amount (positive = down, negative = up)"
-                            ],
-                            "position": [
-                                "type": "object",
-                                "properties": [
-                                    "x": [
-                                        "type": "number",
-                                        "description": "X coordinate for scroll position"
-                                    ],
-                                    "y": [
-                                        "type": "number",
-                                        "description": "Y coordinate for scroll position"
-                                    ]
-                                ],
-                                "description": "Scroll position (optional, uses window center if not specified)"
+                                "description": "Vertical scroll amount"
                             ]
                         ],
-                        "required": ["bundleID", "deltaY"]
-                    ]
-                ),
-                
-                // Information Tools
-                MCP.Tool(
-                    name: "find_elements",
-                    description: "Find and list UI elements in a window",
-                    inputSchema: [
-                        "type": "object",
-                        "properties": [
-                            "bundleID": [
-                                "type": "string",
-                                "description": "Target application bundle ID"
-                            ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
-                            ],
-                            "type": [
-                                "type": "string",
-                                "enum": ["button", "textfield", "text", "image", "menu", "list", "table", "checkbox", "radio", "slider"],
-                                "description": "Filter by UI element type (optional)"
-                            ],
-                            "text": [
-                                "type": "string",
-                                "description": "Filter by exact text content (optional)"
-                            ],
-                            "containing": [
-                                "type": "string",
-                                "description": "Filter by partial text content (optional)"
-                            ],
-                            "label": [
-                                "type": "string",
-                                "description": "Filter by accessibility label (optional)"
-                            ],
-                            "limit": [
-                                "type": "number",
-                                "description": "Maximum number of elements to return (default: 10)"
-                            ]
-                        ],
-                        "required": ["bundleID"]
-                    ]
-                ),
-                
-                MCP.Tool(
-                    name: "capture_screenshot",
-                    description: "Capture a screenshot of a window",
-                    inputSchema: [
-                        "type": "object",
-                        "properties": [
-                            "bundleID": [
-                                "type": "string",
-                                "description": "Target application bundle ID"
-                            ],
-                            "window": [
-                                "type": ["string", "number"],
-                                "description": "Target window (title or index, optional)"
-                            ],
-                            "format": [
-                                "type": "string",
-                                "enum": ["png", "jpeg"],
-                                "description": "Image format (default: png)"
-                            ]
-                        ],
-                        "required": ["bundleID"]
+                        "required": ["elementId", "deltaY"]
                     ]
                 ),
                 
@@ -340,17 +190,37 @@ public final class AppMCPServer: @unchecked Sendable {
                         "properties": [
                             "duration": [
                                 "type": "number",
-                                "description": "Duration to wait in seconds"
+                                "description": "Wait duration in seconds"
                             ]
                         ],
                         "required": ["duration"]
                     ]
                 ),
                 
+                // UI Snapshot Tool
+                MCP.Tool(
+                    name: "capture_ui_snapshot",
+                    description: "Capture window screenshot and extract clickable element IDs",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "bundleID": [
+                                "type": "string",
+                                "description": "Application bundle ID"
+                            ],
+                            "window": [
+                                "type": ["string", "number"],
+                                "description": "Window title or index (optional)"
+                            ]
+                        ],
+                        "required": ["bundleID"]
+                    ]
+                ),
+                
                 // Information Tools
                 MCP.Tool(
                     name: "list_running_applications",
-                    description: "Get list of currently running applications with metadata",
+                    description: "List running applications with bundle IDs and names",
                     inputSchema: [
                         "type": "object",
                         "properties": [:],
@@ -360,7 +230,7 @@ public final class AppMCPServer: @unchecked Sendable {
                 
                 MCP.Tool(
                     name: "list_application_windows",
-                    description: "Get list of all application windows with bounds and visibility info",
+                    description: "List application windows with titles and coordinates",
                     inputSchema: [
                         "type": "object",
                         "properties": [:],
@@ -382,10 +252,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleDragDrop(arguments)
             case "scroll_window":
                 return await self.handleScrollWindow(arguments)
-            case "find_elements":
-                return await self.handleFindElements(arguments)
-            case "capture_screenshot":
-                return await self.handleCaptureScreenshot(arguments)
+            case "capture_ui_snapshot":
+                return await self.handleCaptureUISnapshot(arguments)
             case "wait_time":
                 return await self.handleWaitTime(arguments)
             case "list_running_applications":
@@ -408,10 +276,7 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await performClick(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "click_element")
         }
     }
     
@@ -433,10 +298,7 @@ public final class AppMCPServer: @unchecked Sendable {
             
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "input_text")
         }
     }
     
@@ -445,10 +307,7 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await performDrag(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "drag_drop")
         }
     }
     
@@ -457,34 +316,16 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await performScroll(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "scroll_window")
         }
     }
     
-    internal func handleFindElements(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+    internal func handleCaptureUISnapshot(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
         do {
-            let result = try await performFind(arguments)
+            let result = try await performUISnapshot(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
-        }
-    }
-    
-    internal func handleCaptureScreenshot(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
-        do {
-            let result = try await performScreenshot(arguments)
-            return CallTool.Result(content: [.text(result)])
-        } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "capture_ui_snapshot")
         }
     }
     
@@ -493,10 +334,7 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await performWait(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "wait_time")
         }
     }
     
@@ -505,10 +343,7 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await getApplications()
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "list_running_applications")
         }
     }
     
@@ -517,65 +352,47 @@ public final class AppMCPServer: @unchecked Sendable {
             let result = try await getWindows()
             return CallTool.Result(content: [.text(result)])
         } catch {
-            return CallTool.Result(
-                content: [.text("Error: \(error.localizedDescription)")],
-                isError: true
-            )
+            return handleToolError(error, toolName: "list_application_windows")
         }
     }
+    
     
     
     // MARK: - Action Implementations
     
     private func performClick(_ arguments: [String: MCP.Value]) async throws -> String {
-        // Extract required bundleID using type-safe method
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        
-        // Extract optional button type and click count
+        let elementId = try extractRequiredString(from: arguments, key: "elementId")
         let buttonType = extractOptionalString(from: arguments, key: "button") ?? "left"
-        let clickCount = extractOptionalDouble(from: arguments, key: "clickCount").map { Int($0) } ?? 1
+        let count = extractOptionalDouble(from: arguments, key: "count").map { Int($0) } ?? 1
         
-        // Resolve app and window
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
+        // Convert button type to MouseButton
+        let mouseButton: MouseButton = {
+            switch buttonType {
+            case "right": return .right
+            case "center": return .center
+            default: return .left
+            }
+        }()
         
-        // Check for element parameter first (preferred method)
-        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
-            let element = try await findElementWithCriteria(elementObject, in: window)
-            
-            // Use AppPilot's click method with button type and count parameters
-            for _ in 0..<clickCount {
-                _ = try await pilot.clickElement(element, in: window)
-                if clickCount > 1 {
-                    try await pilot.wait(.time(seconds: 0.1)) // Brief delay between multiple clicks
-                }
+        // Use AppPilot's element ID method
+        let result = try await pilot.click(elementID: elementId)
+        
+        // For non-default button/count, use coordinate-based clicking
+        if buttonType != "left" || count != 1 {
+            guard let element = result.element else {
+                throw AppMCPError.systemError("Failed to get element info for advanced click")
             }
             
-            let buttonDesc = buttonType == "left" ? "" : " (\(buttonType) button)"
-            let countDesc = clickCount == 1 ? "" : " \(clickCount) times"
-            return "Clicked\(buttonDesc) element \(element.role.rawValue) '\(element.title ?? element.id)'\(countDesc) at (\(element.centerPoint.x), \(element.centerPoint.y))"
-        }
-        
-        // Fallback to coordinate-based click
-        if let coordinatesObject = extractOptionalObject(from: arguments, key: "coordinates") {
-            let x = try extractRequiredDouble(from: coordinatesObject, key: "x")
-            let y = try extractRequiredDouble(from: coordinatesObject, key: "y")
-            let point = Point(x: x, y: y)
-            
-            // Use coordinate-based clicking with button type and count
-            for _ in 0..<clickCount {
-                _ = try await pilot.click(window: window, at: point)
-                if clickCount > 1 {
-                    try await pilot.wait(.time(seconds: 0.1)) // Brief delay between multiple clicks
-                }
-            }
+            // Use coordinate-based click with specified button and count
+            _ = try await pilot.click(at: element.centerPoint, button: mouseButton, count: count)
             
             let buttonDesc = buttonType == "left" ? "" : " (\(buttonType) button)"
-            let countDesc = clickCount == 1 ? "" : " \(clickCount) times"
-            return "Clicked\(buttonDesc)\(countDesc) at coordinates (\(x), \(y))"
+            let countDesc = count == 1 ? "" : " \(count) times"
+            
+            return "Clicked\(buttonDesc) element ID '\(elementId)'\(countDesc) at (\(element.centerPoint.x), \(element.centerPoint.y))"
         }
         
-        throw AppMCPError.invalidParameters("Either 'element' or 'coordinates' parameter is required")
+        return "Clicked element ID '\(elementId)'"
     }
     
     private func extractRequiredDouble(from arguments: [String: MCP.Value], key: String) throws -> Double {
@@ -594,27 +411,18 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     private func performSetText(_ arguments: [String: MCP.Value]) async throws -> String {
-        guard case .string(let text) = arguments["text"] else {
-            throw AppMCPError.invalidParameters("Missing 'text' parameter")
-        }
+        let elementId = try extractRequiredString(from: arguments, key: "elementId")
+        let text = try extractRequiredString(from: arguments, key: "text")
+        let method = extractOptionalString(from: arguments, key: "method") ?? "type"
         
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
-        
-        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
-            // Set text directly using AppPilot's setValue method (fast, direct)
-            let element = try await findElementWithCriteria(elementObject, in: window)
-            let result = try await pilot.setValue(text, for: element)
-            let actualText: String
-            if case .setValue(_, let actual) = result.data {
-                actualText = actual ?? "unknown"
-            } else {
-                actualText = "unknown"
-            }
-            return "Set text '\(text)' in \(element.role.rawValue) '\(element.title ?? element.id)'. Actual text: \(actualText)"
+        if method == "setValue" {
+            // Use AppPilot's direct setValue method (efficient)
+            _ = try await pilot.setValue(text, for: elementId)
+            return "Set text '\(text)' in element ID '\(elementId)' using setValue method"
         } else {
-            throw AppMCPError.invalidParameters("setText action requires 'element' parameter")
+            // Use AppPilot's input method (keyboard simulation)
+            _ = try await pilot.input(text: text, into: elementId)
+            return "Typed text '\(text)' into element ID '\(elementId)'"
         }
     }
     
@@ -630,19 +438,21 @@ public final class AppMCPServer: @unchecked Sendable {
         if let elementObject = extractOptionalObject(from: arguments, key: "element") {
             let element = try await findElementWithCriteria(elementObject, in: window)
             
+            // Validate element accessibility
+            try validateElementAccessibility(element)
+            
+            // Click element to focus it
+            _ = try await pilot.click(window: window, at: element.centerPoint)
+            
             if clearFirst {
-                // Clear existing text first
-                _ = try await pilot.setValue("", for: element)
+                // Clear existing text first by selecting all
+                _ = try await pilot.keyCombination([.a], modifiers: [.command])
             }
             
-            let result = try await pilot.input(text: text, into: element)
-            let actualText: String
-            if case .type(_, let actual, _, _) = result.data {
-                actualText = actual ?? "unknown"
-            } else {
-                actualText = "unknown"
-            }
-            return "Typed '\(text)' into \(element.role.rawValue) '\(element.title ?? element.id)'. Actual text: \(actualText)"
+            // Type the text
+            _ = try await pilot.type(text, window: window)
+            
+            return "Typed '\(text)' into \(element.role?.rawValue ?? "unknown") '\(getElementDescription(element))'"
         } else {
             if clearFirst {
                 // Clear focused element first - use Cmd+A to select all, then type to replace
@@ -654,61 +464,6 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    private func performDrag(_ arguments: [String: MCP.Value]) async throws -> String {
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
-        
-        // Extract 'from' coordinates using type-safe method
-        let fromCoords = try extractRequiredObject(from: arguments, key: "from")
-        let startX = try extractRequiredDouble(from: fromCoords, key: "x")
-        let startY = try extractRequiredDouble(from: fromCoords, key: "y")
-        
-        // Extract 'to' coordinates using type-safe method
-        let toCoords = try extractRequiredObject(from: arguments, key: "to")
-        let endX = try extractRequiredDouble(from: toCoords, key: "x")
-        let endY = try extractRequiredDouble(from: toCoords, key: "y")
-        
-        let startPoint = Point(x: startX, y: startY)
-        let endPoint = Point(x: endX, y: endY)
-        
-        // Extract duration using type-safe method with default
-        let duration = extractOptionalDouble(from: arguments, key: "duration") ?? 1.0
-        
-        _ = try await pilot.drag(from: startPoint, to: endPoint, duration: duration, window: window)
-        return "Dragged from (\(startX), \(startY)) to (\(endX), \(endY)) over \(duration) seconds"
-    }
-    
-    private func performScroll(_ arguments: [String: MCP.Value]) async throws -> String {
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
-        
-        let deltaX = extractOptionalDouble(from: arguments, key: "deltaX") ?? 0.0
-        let deltaY = try extractRequiredDouble(from: arguments, key: "deltaY")
-        
-        // Get scroll position - use window center if no coordinates specified
-        let point: Point
-        if let positionObject = extractOptionalObject(from: arguments, key: "position") {
-            let x = try extractRequiredDouble(from: positionObject, key: "x")
-            let y = try extractRequiredDouble(from: positionObject, key: "y")
-            point = Point(x: x, y: y)
-        } else {
-            // Use window center for scroll
-            let windows = try await pilot.listWindows(app: app)
-            if let windowInfo = windows.first(where: { $0.id == window }) {
-                let bounds = windowInfo.bounds
-                point = Point(x: bounds.midX, y: bounds.midY)
-            } else {
-                point = Point(x: 400.0, y: 400.0) // Default center
-            }
-        }
-        
-        // Use AppPilot's safe scroll method with window context
-        _ = try await pilot.scroll(deltaX: deltaX, deltaY: deltaY, at: point, window: window)
-        
-        return "Scrolled deltaX: \(deltaX), deltaY: \(deltaY) at (\(point.x), \(point.y))"
-    }
     
     private func performWait(_ arguments: [String: MCP.Value]) async throws -> String {
         // Extract required duration parameter using type-safe method
@@ -721,6 +476,62 @@ public final class AppMCPServer: @unchecked Sendable {
         
         try await pilot.wait(.time(seconds: duration))
         return "Waited \(duration) seconds"
+    }
+    
+    private func performDrag(_ arguments: [String: MCP.Value]) async throws -> String {
+        let fromElementId = try extractRequiredString(from: arguments, key: "fromElementId")
+        let toElementId = try extractRequiredString(from: arguments, key: "toElementId")
+        let duration = extractOptionalDouble(from: arguments, key: "duration") ?? 1.0
+        
+        // Check if elements exist
+        guard try await pilot.elementExists(elementID: fromElementId) else {
+            throw AppMCPError.elementNotAccessible("Source element '\(fromElementId)' not found or not accessible")
+        }
+        
+        guard try await pilot.elementExists(elementID: toElementId) else {
+            throw AppMCPError.elementNotAccessible("Target element '\(toElementId)' not found or not accessible")
+        }
+        
+        // Get element positions by clicking them (which gives us ActionResult with coordinates)
+        let fromResult = try await pilot.click(elementID: fromElementId)
+        let toResult = try await pilot.click(elementID: toElementId)
+        
+        guard let fromElement = fromResult.element, let toElement = toResult.element else {
+            throw AppMCPError.systemError("Failed to get element coordinates for drag operation")
+        }
+        
+        let fromPoint = fromElement.centerPoint
+        let toPoint = toElement.centerPoint
+        
+        // Perform drag operation using AppPilot
+        _ = try await pilot.drag(from: fromPoint, to: toPoint, duration: duration)
+        
+        return "Dragged from element '\(fromElementId)' at (\(fromPoint.x), \(fromPoint.y)) to element '\(toElementId)' at (\(toPoint.x), \(toPoint.y)) over \(duration) seconds"
+    }
+    
+    private func performScroll(_ arguments: [String: MCP.Value]) async throws -> String {
+        let elementId = try extractRequiredString(from: arguments, key: "elementId")
+        let deltaX = extractOptionalDouble(from: arguments, key: "deltaX") ?? 0
+        let deltaY = try extractRequiredDouble(from: arguments, key: "deltaY")
+        
+        // Check if element exists
+        guard try await pilot.elementExists(elementID: elementId) else {
+            throw AppMCPError.elementNotAccessible("Element '\(elementId)' not found or not accessible")
+        }
+        
+        // Get element position by clicking it (which gives us ActionResult with coordinates)
+        let result = try await pilot.click(elementID: elementId)
+        
+        guard let element = result.element else {
+            throw AppMCPError.systemError("Failed to get element coordinates for scroll operation")
+        }
+        
+        let scrollPoint = element.centerPoint
+        
+        // Perform scroll operation using AppPilot
+        _ = try await pilot.scroll(deltaX: deltaX, deltaY: deltaY, at: scrollPoint)
+        
+        return "Scrolled at element '\(elementId)' location (\(scrollPoint.x), \(scrollPoint.y)) with delta (\(deltaX), \(deltaY))"
     }
     
     private func performFind(_ arguments: [String: MCP.Value]) async throws -> String {
@@ -766,19 +577,24 @@ public final class AppMCPServer: @unchecked Sendable {
         return try await buildHierarchicalResponse(elements: limitedElements, totalCount: elements.count, limit: limit)
     }
     
-    private func getUserFriendlyType(for role: ElementRole) -> String {
+    private func getUserFriendlyType(for roleString: String?) -> String {
+        guard let roleString = roleString else { return "unknown" }
+        
+        // Convert string role to Role if possible
+        guard let role = Role(rawValue: roleString) else { return roleString }
+        
         switch role {
-        case .button, .popUpButton, .menuBarItem:
+        case .button, .popUpButton, .menuBarItem, .tabGroup:
             return "button"
-        case .textField, .searchField:
+        case .textField, .field:
             return "textfield"
         case .staticText:
             return "text"
         case .image:
             return "image"
-        case .menuBar, .menuItem:
+        case .menu, .menuBar, .menuItem:
             return "menu"
-        case .list:
+        case .list, .row:
             return "list"
         case .table, .cell:
             return "table"
@@ -788,6 +604,12 @@ public final class AppMCPServer: @unchecked Sendable {
             return "radio"
         case .slider:
             return "slider"
+        case .link:
+            return "link"
+        case .group, .scrollArea:
+            return "group"
+        case .unknown:
+            return "unknown"
         default:
             return role.rawValue
         }
@@ -866,6 +688,93 @@ public final class AppMCPServer: @unchecked Sendable {
         
         data:\(mimeType);base64,\(base64Data)
         """
+    }
+    
+    private func performUISnapshot(_ arguments: [String: MCP.Value]) async throws -> String {
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
+        
+        // Capture complete UI snapshot using AppPilot
+        let snapshot = try await pilot.snapshot(window: window, metadata: nil)
+        
+        // Resize image for MCP compatibility
+        guard let originalImage = snapshot.image else {
+            throw AppMCPError.systemError("Failed to extract image from snapshot")
+        }
+        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 600)
+        
+        // Convert to JPEG for efficiency
+        guard let imageData = ScreenCaptureUtility.convertToJPEG(resizedImage, quality: 0.4) else {
+            throw AppMCPError.systemError("Failed to convert snapshot to JPEG")
+        }
+        
+        // Build element hierarchy with IDs
+        let elementsJson = try buildElementsJsonResponse(snapshot.elements)
+        
+        // Build metadata information
+        let windowTitle = snapshot.windowInfo.title ?? "Unknown Window"
+        let dimensions = "\(resizedImage.width)x\(resizedImage.height)"
+        let fileSizeKB = String(format: "%.1f", Double(imageData.count) / 1024.0)
+        let elementCount = snapshot.elements.count
+        
+        let base64Data = imageData.base64EncodedString()
+        
+        return """
+        UI Snapshot captured successfully:
+        - Window: \(windowTitle)
+        - Dimensions: \(dimensions)
+        - Format: JPEG
+        - Size: \(fileSizeKB) KB
+        - Elements found: \(elementCount)
+        - Timestamp: \(snapshot.timestamp)
+        
+        Screenshot:
+        data:image/jpeg;base64,\(base64Data)
+        
+        UI Elements:
+        \(elementsJson)
+        """
+    }
+    
+    private func buildElementsJsonResponse(_ elements: [AIElement]) throws -> String {
+        var elementsData: [[String: Any]] = []
+        
+        for element in elements {
+            var elementData: [String: Any] = [
+                "id": element.id,
+                "role": element.role?.rawValue ?? "unknown"
+            ]
+            
+            if let title = element.title, !title.isEmpty {
+                elementData["title"] = title
+            }
+            
+            if let value = element.value, !value.isEmpty {
+                elementData["value"] = value
+            }
+            
+            if let identifier = element.identifier, !identifier.isEmpty {
+                elementData["identifier"] = identifier
+            }
+            
+            if let bounds = element.bounds, bounds.count == 4 {
+                elementData["bounds"] = [
+                    "x": bounds[0],
+                    "y": bounds[1], 
+                    "width": bounds[2],
+                    "height": bounds[3]
+                ]
+            }
+            
+            elementData["enabled"] = element.isEnabled
+            elementData["userFriendlyType"] = getUserFriendlyType(for: element.role?.rawValue)
+            
+            elementsData.append(elementData)
+        }
+        
+        let jsonData = try JSONSerialization.data(withJSONObject: elementsData, options: [.prettyPrinted])
+        return String(data: jsonData, encoding: .utf8) ?? "[]"
     }
     
     // MARK: - Image Processing Utilities
@@ -1097,33 +1006,121 @@ public final class AppMCPServer: @unchecked Sendable {
         return bool
     }
     
+    // MARK: - Dynamic Element Discovery
+    
+    /// Find search field dynamically using UI snapshot analysis
+    private func findSearchFieldDynamically(in window: WindowHandle) async throws -> AIElement? {
+        let snapshot = try await pilot.snapshot(window: window)
+        
+        // Search for potential search field candidates
+        var searchCandidates: [AIElement] = []
+        for element in snapshot.elements {
+            // Check role (various search field implementations)
+            let roleMatches = ["TextField", "SearchField", "Field"].contains(element.role?.rawValue ?? "")
+            
+            // Check title/value/identifier for search-related text
+            let titleText = element.title?.lowercased() ?? ""
+            let valueText = element.value?.lowercased() ?? ""
+            let idText = element.identifier?.lowercased() ?? ""
+            
+            let hasSearchInText = titleText.contains("search") || titleText.contains("検索") ||
+                                valueText.contains("search") || valueText.contains("検索") ||
+                                idText.contains("search") || idText.contains("検索")
+            
+            // Check element properties for search field characteristics
+            var hasReasonableSize = false
+            var isInTopArea = false
+            var isInToolbarArea = false
+            
+            if let bounds = element.bounds, bounds.count >= 4 {
+                let width = bounds[2] - bounds[0]
+                let height = bounds[3] - bounds[1]
+                let maxY = bounds[3]
+                let minY = bounds[1]
+                
+                hasReasonableSize = width > 100 && height > 15
+                isInTopArea = maxY > -1050 // Top area of window for search fields
+                isInToolbarArea = minY > -1030 && maxY < -990
+            }
+            
+            if roleMatches || (hasSearchInText && hasReasonableSize) || 
+               (hasReasonableSize && (isInTopArea || isInToolbarArea)) {
+                searchCandidates.append(element)
+            }
+        }
+        
+        // Prefer elements with search-related text, then by role, then by position
+        return searchCandidates.sorted { first, second in
+            // Check if elements have search-related text
+            let firstTitle = first.title?.lowercased() ?? ""
+            let firstId = first.identifier?.lowercased() ?? ""
+            let firstHasSearch = firstTitle.contains("search") || first.title?.contains("検索") == true ||
+                               firstId.contains("search") || first.identifier?.contains("検索") == true
+            
+            let secondTitle = second.title?.lowercased() ?? ""
+            let secondId = second.identifier?.lowercased() ?? ""
+            let secondHasSearch = secondTitle.contains("search") || second.title?.contains("検索") == true ||
+                                secondId.contains("search") || second.identifier?.contains("検索") == true
+            
+            if firstHasSearch != secondHasSearch {
+                return firstHasSearch
+            }
+            
+            // Prefer elements with known search roles
+            let firstRole = first.role?.rawValue ?? ""
+            let secondRole = second.role?.rawValue ?? ""
+            let firstIsKnownRole = ["TextField", "SearchField"].contains(firstRole)
+            let secondIsKnownRole = ["TextField", "SearchField"].contains(secondRole)
+            
+            if firstIsKnownRole != secondIsKnownRole {
+                return firstIsKnownRole
+            }
+            
+            // Prefer higher elements (closer to top of window)
+            if let firstBounds = first.bounds, firstBounds.count >= 4,
+               let secondBounds = second.bounds, secondBounds.count >= 4 {
+                return firstBounds[3] > secondBounds[3] // Compare maxY
+            }
+            
+            return false
+        }.first
+    }
+    
     // MARK: - User-Friendly Element Type Mapping
     
-    private func mapUserTypeToElementRoles(_ userType: String) -> [ElementRole] {
+    private func mapUserTypeToElementRoles(_ userType: String) -> [Role] {
         switch userType.lowercased() {
         case "button":
-            return [.button, .popUpButton, .menuBarItem]
+            return [.button, .popUpButton, .menuBarItem, .tabGroup]
         case "textfield":
-            return [.textField, .searchField]
+            return [.textField]
         case "text":
             return [.staticText]
         case "image":
             return [.image]
         case "menu":
-            return [.menuBar, .menuItem]
+            return [.menu, .menuBar, .menuItem]
         case "list":
-            return [.list]
+            return [.list, .row]
         case "table":
-            return [.table, .cell]
+            return [.table, .cell, .row]
         case "checkbox":
             return [.checkBox]
         case "radio":
             return [.radioButton]
         case "slider":
             return [.slider]
+        case "link":
+            return [.link]
+        case "group":
+            return [.group, .scrollArea]
+        case "unknown":
+            return [.unknown]
         default:
             // Return all common interactive elements if type is unknown
-            return [.button, .textField, .staticText, .image, .menuItem]
+            // Note: .unknown elements are excluded to avoid performance issues with large element trees
+            return [.button, .popUpButton, .textField, .staticText, 
+                   .image, .menuItem, .tabGroup, .link, .checkBox, .radioButton, .list, .row, .cell]
         }
     }
     
@@ -1162,7 +1159,7 @@ public final class AppMCPServer: @unchecked Sendable {
         throw AppMCPError.windowNotFound("No windows found for application")
     }
     
-    private func findElementWithCriteria(_ criteria: [String: MCP.Value], in window: WindowHandle) async throws -> UIElement {
+    private func findElementWithCriteria(_ criteria: [String: MCP.Value], in window: WindowHandle) async throws -> AIElement {
         // Validate criteria is not empty
         guard !criteria.isEmpty else {
             throw AppMCPError.invalidParameters("Element criteria cannot be empty")
@@ -1175,6 +1172,12 @@ public final class AppMCPServer: @unchecked Sendable {
         let placeholderText = extractOptionalString(from: criteria, key: "placeholder")
         let labelText = extractOptionalString(from: criteria, key: "label")
         let index = extractOptionalDouble(from: criteria, key: "index").map { Int($0) }
+        
+        // Validate that we have some search criteria - AppPilot requires at least one criterion
+        let hasSearchCriteria = exactText != nil || containingText != nil || placeholderText != nil || labelText != nil
+        if !hasSearchCriteria && userType == nil {
+            throw AppMCPError.invalidParameters("At least one search criterion (type, text, containing, placeholder, or label) must be provided")
+        }
         
         // Convert to internal search criteria
         let elements = try await findElementsWithTypeSafeCriteria(
@@ -1203,53 +1206,73 @@ public final class AppMCPServer: @unchecked Sendable {
         placeholderText: String?,
         labelText: String?,
         index: Int?
-    ) async throws -> [UIElement] {
+    ) async throws -> [AIElement] {
         // Convert user type to internal element roles
-        let targetRoles: [ElementRole]?
+        let targetRoles: [Role]?
         if let userType = userType {
             targetRoles = mapUserTypeToElementRoles(userType)
         } else {
             targetRoles = nil
         }
         
+        // Determine search criteria - AppPilot requires title OR identifier for efficient search
+        let searchTitle = exactText ?? containingText ?? placeholderText ?? labelText
+        let searchIdentifier: String? = nil // Future: Add identifier-based search to element criteria
+        
         // Find all elements matching the roles
-        var matchingElements: [UIElement] = []
+        var matchingElements: [AIElement] = []
         
         if let roles = targetRoles {
             for role in roles {
-                let elementsForRole = try await pilot.findElements(in: window, role: role, title: nil, identifier: nil)
-                matchingElements.append(contentsOf: elementsForRole)
-            }
-        } else {
-            matchingElements = try await pilot.findElements(in: window)
-        }
-        
-        // Apply text-based filters
-        matchingElements = matchingElements.filter { element in
-            // Exact text match
-            if let exactText = exactText {
-                return element.title == exactText || element.value == exactText
-            }
-            
-            // Containing text match
-            if let containingText = containingText {
-                let elementTexts = [element.title, element.value].compactMap { $0 }
-                return elementTexts.contains { text in
-                    text.localizedCaseInsensitiveContains(containingText)
+                do {
+                    if searchTitle != nil || searchIdentifier != nil {
+                        // Use specific search when we have title or identifier
+                        let element = try await pilot.findElement(in: window, role: role, title: searchTitle, identifier: searchIdentifier)
+                        matchingElements.append(element)
+                    } else {
+                        // Fallback to broader search and filter later
+                        let elementsForRole = try await pilot.findElements(in: window, role: role, title: nil, identifier: nil)
+                        matchingElements.append(contentsOf: elementsForRole)
+                    }
+                } catch {
+                    // Continue searching other roles if this one fails
+                    // This is expected behavior in AppPilot when elements aren't found
+                    continue
                 }
             }
-            
-            // Placeholder text (for text fields)
-            if let placeholderText = placeholderText {
-                return element.title?.localizedCaseInsensitiveContains(placeholderText) == true
+        } else {
+            // Get all elements if no specific role
+            matchingElements = try await pilot.findElements(in: window, role: nil, title: searchTitle, identifier: searchIdentifier)
+        }
+        
+        // Apply additional text-based filters for broader searches
+        if searchTitle == nil {
+            matchingElements = matchingElements.filter { element in
+                // Exact text match
+                if let exactText = exactText {
+                    return element.title == exactText || element.value == exactText
+                }
+                
+                // Containing text match
+                if let containingText = containingText {
+                    let elementTexts = [element.title, element.value].compactMap { $0 }
+                    return elementTexts.contains { text in
+                        text.localizedCaseInsensitiveContains(containingText)
+                    }
+                }
+                
+                // Placeholder text (for text fields)
+                if let placeholderText = placeholderText {
+                    return element.title?.localizedCaseInsensitiveContains(placeholderText) == true
+                }
+                
+                // Label text
+                if let labelText = labelText {
+                    return element.title?.localizedCaseInsensitiveContains(labelText) == true
+                }
+                
+                return true
             }
-            
-            // Label text
-            if let labelText = labelText {
-                return element.title?.localizedCaseInsensitiveContains(labelText) == true
-            }
-            
-            return true
         }
         
         // Apply index selection if specified
@@ -1289,7 +1312,7 @@ public final class AppMCPServer: @unchecked Sendable {
         return parts.isEmpty ? "no criteria" : parts.joined(separator: ", ")
     }
     
-    private func buildHierarchicalResponse(elements: [UIElement], totalCount: Int, limit: Int) async throws -> String {
+    private func buildHierarchicalResponse(elements: [AIElement], totalCount: Int, limit: Int) async throws -> String {
         // Group elements by functional areas
         let functionalGroups = groupElementsByFunction(elements)
         
@@ -1311,8 +1334,8 @@ public final class AppMCPServer: @unchecked Sendable {
         return response
     }
     
-    private func groupElementsByFunction(_ elements: [UIElement]) -> [String: [UIElement]] {
-        var groups: [String: [UIElement]] = [:]
+    private func groupElementsByFunction(_ elements: [AIElement]) -> [String: [AIElement]] {
+        var groups: [String: [AIElement]] = [:]
         
         for element in elements {
             let groupName = determineElementGroup(element)
@@ -1325,8 +1348,8 @@ public final class AppMCPServer: @unchecked Sendable {
         return groups
     }
     
-    private func determineElementGroup(_ element: UIElement) -> String {
-        let userType = getUserFriendlyType(for: element.role)
+    private func determineElementGroup(_ element: AIElement) -> String {
+        let userType = getUserFriendlyType(for: element.role?.rawValue)
         
         // Group by UI patterns
         if userType == "textfield" {
@@ -1348,8 +1371,8 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    private func buildElementSummary(_ element: UIElement) -> String {
-        let userType = getUserFriendlyType(for: element.role)
+    private func buildElementSummary(_ element: AIElement) -> String {
+        let userType = getUserFriendlyType(for: element.role?.rawValue)
         let displayText = extractDisplayText(element)
         let coordinates = "(\(Int(element.centerPoint.x)), \(Int(element.centerPoint.y)))"
         
@@ -1360,7 +1383,7 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    private func extractDisplayText(_ element: UIElement) -> String {
+    private func extractDisplayText(_ element: AIElement) -> String {
         // Extract meaningful text, avoiding internal IDs
         if let title = element.title, !title.isEmpty && !title.hasPrefix("win_") {
             return title
@@ -1373,6 +1396,74 @@ public final class AppMCPServer: @unchecked Sendable {
         return ""
     }
     
+    // MARK: - Error Handling Helpers
+    
+    /// Convert AppPilot errors to AppMCP errors for better error reporting
+    private func convertPilotError(_ error: Swift.Error) -> AppMCPError {
+        // Check if it's already an AppMCP error
+        if let appMcpError = error as? AppMCPError {
+            return appMcpError
+        }
+        
+        // Convert common AppPilot error patterns
+        let errorString = error.localizedDescription.lowercased()
+        
+        // Application-related errors
+        if errorString.contains("application not found") || errorString.contains("no application") || 
+           (errorString.contains("application") && errorString.contains("not found")) {
+            return .applicationNotFound(error.localizedDescription)
+        }
+        
+        // Window-related errors
+        if errorString.contains("window not found") || errorString.contains("no window") ||
+           (errorString.contains("window") && errorString.contains("not found")) {
+            return .windowNotFound(error.localizedDescription)
+        }
+        
+        // Element-related errors
+        if errorString.contains("element not found") || errorString.contains("no element") ||
+           (errorString.contains("element") && errorString.contains("not found")) ||
+           errorString.contains("failed to find element") {
+            return .elementNotFound(error.localizedDescription)
+        }
+        
+        // Accessibility errors
+        if errorString.contains("element not accessible") || errorString.contains("not accessible") ||
+           errorString.contains("accessibility disabled") {
+            return .elementNotAccessible(error.localizedDescription)
+        }
+        
+        // Permission errors
+        if errorString.contains("permission denied") || errorString.contains("accessibility") ||
+           errorString.contains("not authorized") || errorString.contains("requires permission") {
+            return .permissionDenied(error.localizedDescription)
+        }
+        
+        // Coordinate/bounds errors
+        if (errorString.contains("coordinate") && errorString.contains("bounds")) ||
+           errorString.contains("out of bounds") || errorString.contains("invalid coordinates") {
+            return .coordinateOutOfBounds(error.localizedDescription)
+        }
+        
+        // Timeout errors
+        if errorString.contains("timeout") || errorString.contains("timed out") ||
+           errorString.contains("operation took too long") {
+            return .timeout(error.localizedDescription)
+        }
+        
+        // Default to system error
+        return .systemError(error.localizedDescription)
+    }
+    
+    /// Enhanced error handling for tool operations
+    private func handleToolError(_ error: Swift.Error, toolName: String) -> CallTool.Result {
+        let convertedError = convertPilotError(error)
+        return CallTool.Result(
+            content: [.text("Error in \(toolName): \(convertedError.localizedDescription)")],
+            isError: true
+        )
+    }
+    
     // MARK: - Server Lifecycle
     
     public func start() async throws {
@@ -1381,6 +1472,15 @@ public final class AppMCPServer: @unchecked Sendable {
         print("   MCP Protocol: \(AppMCP.mcpVersion)")
         print("   Powered by: AppPilot")
         print("   Essential automation actions available")
+        
+        // Validate AppPilot capabilities on startup
+        do {
+            try await validateAppPilotCapabilities()
+            print("✅ AppPilot capabilities verified")
+        } catch {
+            print("⚠️  AppPilot capability check failed: \(error.localizedDescription)")
+            print("   Some features may not work without proper permissions")
+        }
         
         let transport = StdioTransport()
         try await server.start(transport: transport)

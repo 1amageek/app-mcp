@@ -1,13 +1,22 @@
 {
-  "originHash" : "37b539336f46e02047f1a28bc3f5f59f3eaba2dc232483fe00f28462dbfdf708",
+  "originHash" : "7007072e76f2fe9dcd4e983c5e63b5db7ec3d5894d340dd3ed3396e95710b0e3",
   "pins" : [
     {
       "identity" : "apppilot",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/AppPilot.git",
       "state" : {
-        "revision" : "f5a8dbd5e577de35fdb91ecc16d95c4facea4c2c",
-        "version" : "1.1.3"
+        "branch" : "main",
+        "revision" : "d1c7cd8c3e5ba43da92d82fe44c3c965727a1a29"
+      }
+    },
+    {
+      "identity" : "axui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/AXUI.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0440830dc173ffb73f2ffa6e209c7b442a136feb"
       }
     },
     {

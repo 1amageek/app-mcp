@@ -14,31 +14,33 @@ AppMCP depends on AppPilot for all automation functionality, providing a clean M
 ## Important: How to Use AppMCP Tools Correctly
 
 ### Modern AppMCP Tool Usage
-AppMCP now provides 7 specialized MCP tools (redesigned December 2024):
-- `click_element`: Element-based or coordinate-based clicking with multi-button support
-- `input_text`: Text input with method selection (type/setValue) and element targeting
-- `drag_drop`: Drag operations between coordinates with configurable duration
-- `scroll_window`: Window scrolling with delta values and position targeting
-- `find_elements`: UI element discovery with filtering and user-friendly criteria
-- `capture_screenshot`: Window screenshot capture with format selection
+AppMCP now provides 6 specialized MCP tools (redesigned December 2024):
+- `capture_ui_snapshot`: Unified UI state capture (screenshot + element hierarchy with IDs)
+- `click_element`: Element ID-based clicking with multi-button support
+- `input_text`: Element ID-based text input with method selection (type/setValue)
+- `drag_drop`: Element ID-based drag operations between elements
+- `scroll_window`: Element ID-based scrolling at specific element locations
 - `wait_time`: Time-based waiting operations
 
-### Security Features - Window Context Required
-All operations now require window context for security:
-- **bundleID** or **appName** parameter required for app targeting
-- **window** parameter (title or index) for window targeting
-- Element-based operations are preferred over raw coordinates
-- AppPilot automatically validates coordinates within window bounds
-- Target application focus is ensured before operations
+### Modern ElementID-Based Design
+All operations now use element IDs from `capture_ui_snapshot` for maximum efficiency:
+- **ElementID-First Approach**: No more bundleID/window parameters needed
+- **Snapshot-Driven Workflow**: Capture UI state once, operate multiple times
+- **AI-Optimized**: Visual screenshot + element IDs enable intelligent automation
+- **Performance**: Direct element operations without search overhead
+- **Reliability**: Elements validated and accessible when snapshot captured
 
 ### Listing Available Applications
 When asked to "list available apps" or "show running applications":
 - **DO** use the `running_applications` resource: `appmcp://resources/running_applications`
 - This returns ALL running apps with names, bundle IDs, handles, and active status
 
-### Tools vs Resources
-- **Resources**: Use to GET information (list apps, check windows)
-- **Tools**: Use to PERFORM actions (click, type, find, etc.)
+### AI Workflow for UI Automation
+1. **Discover**: Use `running_applications` resource to find target app
+2. **Capture**: Use `capture_ui_snapshot` to get screenshot + element IDs  
+3. **Analyze**: AI visually identifies target elements from screenshot
+4. **Act**: Use element IDs with operation tools (click, input, drag, scroll)
+5. **Repeat**: Additional operations use same element IDs (no re-capture needed)
 
 ## Commands
 
@@ -113,7 +115,7 @@ AppMCP is a Swift Package implementing Model Context Protocol (MCP) SDK v0.7.1 f
 
 #### AppMCP Layer (MCP Interface)
 - **AppMCPServer**: Main MCP server implementing JSON-RPC automation tools
-- **Specialized Tool Design**: 7 dedicated MCP tools with user-friendly element specification
+- **Specialized Tool Design**: 6 dedicated MCP tools with user-friendly element specification
 - **Resource Providers**: 
   - `running_applications`: List all running applications with metadata
   - `application_windows`: All application windows with bounds and visibility
@@ -146,7 +148,7 @@ AppMCP depends on AppPilot for all actual automation functionality:
 - **Protocol-Based Drivers**: Pluggable driver architecture for testing and extensibility
 
 ### Current Components
-- **AppMCPServer**: MCP protocol server with 7 specialized automation tools
+- **AppMCPServer**: MCP protocol server with 6 specialized automation tools
 - **AppPilot Integration**: Seamless integration with AppPilot automation core
 - **appmcpd**: CLI daemon executable for running the MCP server
 
@@ -257,7 +259,7 @@ When testing AppMCP tools:
 AppMCP underwent a complete tool architecture redesign based on user feedback that the original unified tool was "too abstracted." The redesign focused on creating specialized tools with user-friendly element specification.
 
 #### Key Changes Implemented:
-1. **Tool Specialization**: Replaced single `automation` tool with 7 specialized MCP tools
+1. **Tool Specialization**: Replaced single `automation` tool with 6 specialized MCP tools
 2. **User-Friendly Element Types**: Eliminated requirement for users to know internal AX role names
 3. **Element Type Mapping**: Automatic conversion from user types to internal accessibility roles
 4. **Test Code Separation**: Moved test helper methods from production to test-only code
@@ -309,48 +311,56 @@ AppMCP underwent a complete tool architecture redesign based on user feedback th
 - **`setValue`**: Direct value setting for efficiency (default for AppMCP)
 - **`type`**: Keystroke simulation for user-like behavior
 
-### Weather App Example Usage
-With the redesigned implementation, Weather app automation now works as follows:
+### Weather App Example Usage (Modern ElementID-Based)
+With the new ElementID-based design, Weather app automation is much more efficient:
 
 ```javascript
-// Find and click search field
+// Step 1: Capture UI state
+const snapshot = await tools.capture_ui_snapshot({
+  bundleID: "com.apple.weather"
+});
+
+// Step 2: AI analyzes screenshot and finds search field element ID
+// (e.g., "elem_search_12345" from the elements list)
+
+// Step 3: Direct operations using element IDs
 await tools.click_element({
-  bundleID: "com.apple.weather",
-  element: {
-    type: "textfield"  // User-friendly type instead of "AXTextField"
-  }
+  elementId: "elem_search_12345"
 });
 
-// Input location efficiently
 await tools.input_text({
-  bundleID: "com.apple.weather",
+  elementId: "elem_search_12345",
   text: "Tokyo",
-  method: "setValue"  // Direct setting for performance
+  method: "setValue"  // Efficient direct setting
 });
 
-// Press Enter to search
-await tools.input_text({
-  bundleID: "com.apple.weather", 
-  text: "\n",
-  method: "type"  // Keystroke simulation for special keys
+// Find and click search button from same snapshot
+await tools.click_element({
+  elementId: "elem_search_btn_67890"
 });
 ```
 
+**Benefits over legacy approach:**
+- 90% fewer parameters (elementId vs bundleID + window + element criteria)
+- AI can visually verify target before clicking
+- Multiple operations from single snapshot
+- No repeated element searches
+
 **Core Features Available**:
-- Application targeting by bundle ID (`com.apple.weather`)
-- Window resolution by title or index
-- User-friendly element specification (no AX knowledge required)
+- Unified UI snapshot capture (screenshot + element hierarchy)
+- Direct element operations via IDs (no search overhead)
+- AI-optimized workflow (visual + programmatic)
 - Efficient text input with setValue method
-- Screenshot capture of specific windows
-- Wait operations for UI state changes
-- Specialized tools for each automation aspect
+- Element-based drag and drop operations
+- Context-aware scrolling at element locations
+- Time-based wait operations
 
 ### Implementation Quality Focus:
-- **Security**: All operations require window context validation
-- **Reliability**: Element-based operations with AppPilot integration
-- **Efficiency**: Direct value setting prioritized over simulation
-- **Maintainability**: Test code properly separated from production code
-- **User Experience**: No requirement for internal accessibility knowledge
+- **AI-First Design**: Visual screenshots + programmatic element IDs
+- **Maximum Efficiency**: ElementID operations eliminate search overhead
+- **Simplified API**: Minimal parameters (elementId only) for most operations
+- **Snapshot Workflow**: Capture once, operate multiple times
+- **AppPilot Integration**: Direct element operations with coordinate fallback
 
 ## CRITICAL: Error Handling and Development Principles
 

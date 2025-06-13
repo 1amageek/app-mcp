@@ -1,6 +1,5 @@
 import Foundation
 import MCP
-import AppPilot
 
 /// AppMCP - Modern macOS UI Automation via Model Context Protocol
 ///
@@ -29,7 +28,7 @@ public struct AppMCP {
     public static let version = "1.0.0"
     
     /// MCP protocol version supported
-    public static let mcpVersion = "0.7.1"
+    public static let mcpVersion = "0.9.0"
 }
 
 /// Common error types for AppMCP operations
@@ -42,6 +41,10 @@ public enum AppMCPError: Swift.Error, Sendable {
     case systemError(String)
     case missingParameter(String)
     case invalidParameterType(String, expected: String, got: String)
+    case elementNotAccessible(String)
+    case coordinateOutOfBounds(String)
+    case timeout(String)
+    case imageConversionFailed(String)
     
     public var localizedDescription: String {
         switch self {
@@ -61,6 +64,20 @@ public enum AppMCPError: Swift.Error, Sendable {
             return "Missing required parameter: \(param)"
         case .invalidParameterType(let param, let expected, let got):
             return "Parameter '\(param)' must be \(expected), got \(got)"
+        case .elementNotAccessible(let msg):
+            return "Element not accessible: \(msg)"
+        case .coordinateOutOfBounds(let msg):
+            return "Coordinates out of bounds: \(msg)"
+        case .timeout(let msg):
+            return "Operation timed out: \(msg)"
+        case .imageConversionFailed(let msg):
+            return "Image conversion failed: \(msg)"
         }
+    }
+    
+    /// Convert AppPilot errors to AppMCP errors
+    public static func fromPilotError(_ error: Swift.Error) -> AppMCPError {
+        // Since we can't import AppPilot here, we'll handle this mapping in the server
+        return .systemError(error.localizedDescription)
     }
 }

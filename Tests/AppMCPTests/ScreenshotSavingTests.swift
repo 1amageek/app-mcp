@@ -29,11 +29,25 @@ struct ScreenshotSavingTests {
             return
         }
         
-        // Verify it's a base64 data URL
-        #expect(base64Data.hasPrefix("data:image/png;base64,"), "Should be PNG data URL")
+        // Extract data URL from the response (it's on the last line)
+        let lines = base64Data.components(separatedBy: .newlines)
+        let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
-        // Extract base64 string
-        let base64String = String(base64Data.dropFirst("data:image/png;base64,".count))
+        // Verify it's a base64 data URL (PNG or JPEG since AppMCP may optimize format)
+        let isPNG = dataURL.hasPrefix("data:image/png;base64,")
+        let isJPEG = dataURL.hasPrefix("data:image/jpeg;base64,")
+        #expect(isPNG || isJPEG, "Should be PNG or JPEG data URL")
+        
+        // Extract base64 string based on format
+        let base64String: String
+        if dataURL.hasPrefix("data:image/png;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/png;base64,".count))
+        } else if dataURL.hasPrefix("data:image/jpeg;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/jpeg;base64,".count))
+        } else {
+            #expect(Bool(false), "Unknown image format in data URL")
+            return
+        }
         
         // Decode base64 to Data
         guard let imageData = Data(base64Encoded: base64String) else {
@@ -85,11 +99,25 @@ struct ScreenshotSavingTests {
             return
         }
         
-        // Verify it's a base64 data URL
-        #expect(base64Data.hasPrefix("data:image/jpeg;base64,"), "Should be JPEG data URL")
+        // Extract data URL from the response (it's on the last line)
+        let lines = base64Data.components(separatedBy: .newlines)
+        let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
-        // Extract base64 string
-        let base64String = String(base64Data.dropFirst("data:image/jpeg;base64,".count))
+        // Verify it's a base64 data URL (JPEG or PNG since format may be optimized)
+        let isJPEG = dataURL.hasPrefix("data:image/jpeg;base64,")
+        let isPNG = dataURL.hasPrefix("data:image/png;base64,")
+        #expect(isJPEG || isPNG, "Should be JPEG or PNG data URL")
+        
+        // Extract base64 string based on format
+        let base64String: String
+        if dataURL.hasPrefix("data:image/jpeg;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/jpeg;base64,".count))
+        } else if dataURL.hasPrefix("data:image/png;base64,") {
+            base64String = String(dataURL.dropFirst("data:image/png;base64,".count))
+        } else {
+            #expect(Bool(false), "Unknown image format in data URL")
+            return
+        }
         
         // Decode base64 to Data
         guard let imageData = Data(base64Encoded: base64String) else {
@@ -152,10 +180,22 @@ struct ScreenshotSavingTests {
                 continue
             }
             
-            if base64Data.hasPrefix("data:image/png;base64,") {
-                let base64String = String(base64Data.dropFirst("data:image/png;base64,".count))
-                
-                if let imageData = Data(base64Encoded: base64String) {
+            // Extract data URL from the response
+            let lines = base64Data.components(separatedBy: .newlines)
+            let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
+            
+            // Handle both PNG and JPEG formats
+            let base64String: String?
+            if dataURL.hasPrefix("data:image/png;base64,") {
+                base64String = String(dataURL.dropFirst("data:image/png;base64,".count))
+            } else if dataURL.hasPrefix("data:image/jpeg;base64,") {
+                base64String = String(dataURL.dropFirst("data:image/jpeg;base64,".count))
+            } else {
+                base64String = nil
+            }
+            
+            if let base64StringToUse = base64String,
+               let imageData = Data(base64Encoded: base64StringToUse) {
                     let filename = "\(appName)_screenshot_\(timestamp).png"
                     let filePath = (tempDir as NSString).appendingPathComponent(filename)
                     
@@ -170,7 +210,6 @@ struct ScreenshotSavingTests {
                         print("❌ Failed to save \(appName) screenshot: \(error)")
                     }
                 }
-            }
         }
         
         #expect(savedFiles.count > 0, "At least one screenshot should be saved")
@@ -192,13 +231,19 @@ struct ScreenshotSavingTests {
             return // Skip if no screenshot available
         }
         
+        // Extract data URL from the response
+        let lines = base64Data.components(separatedBy: .newlines)
+        let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
+        
         // Validate data URL format
-        #expect(base64Data.hasPrefix("data:image/"), "Should start with data:image/")
-        #expect(base64Data.contains(";base64,"), "Should contain ;base64,")
+        let hasValidPrefix = dataURL.hasPrefix("data:image/png;base64,") || 
+                           dataURL.hasPrefix("data:image/jpeg;base64,")
+        #expect(hasValidPrefix, "Should start with data:image/png or data:image/jpeg")
+        #expect(dataURL.contains(";base64,"), "Should contain ;base64,")
         
         // Extract and validate base64 content
-        if let base64Range = base64Data.range(of: ";base64,") {
-            let base64Content = String(base64Data[base64Range.upperBound...])
+        if let base64Range = dataURL.range(of: ";base64,") {
+            let base64Content = String(dataURL[base64Range.upperBound...])
             #expect(!base64Content.isEmpty, "Base64 content should not be empty")
             
             // Test that it's valid base64
