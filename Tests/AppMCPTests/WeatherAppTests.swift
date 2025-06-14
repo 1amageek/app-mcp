@@ -96,6 +96,82 @@ struct WeatherAppTests {
         #expect(hasSnapshot, "Should successfully capture UI snapshot")
     }
     
+    @Test("Can find UI elements using elements_snapshot tool (without screenshot)")
+    func testElementsSnapshotTool() async throws {
+        try await launchWeatherApp()
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        
+        // Capture elements-only snapshot in the Weather app
+        let elementsResult = try await callTool("elements_snapshot", [
+            "bundleID": weatherBundleID
+        ])
+        
+        print("=== ELEMENTS SNAPSHOT RESULT ===")
+        print(elementsResult)
+        print("=== END ELEMENTS SNAPSHOT ===")
+        
+        #expect(elementsResult.contains("Elements Snapshot extracted successfully"), "Should extract elements snapshot successfully")
+        #expect(!elementsResult.contains("Error"), "Should not contain errors")
+        #expect(elementsResult.contains("Elements found:"), "Should report found elements count")
+        #expect(!elementsResult.contains("data:image/jpeg;base64,"), "Should not contain screenshot data")
+        
+        // Verify we can extract element IDs from the elements snapshot  
+        let elementIds = extractElementIds(from: elementsResult)
+        print("Extracted element IDs from elements_snapshot: \(elementIds)")
+        
+        // Elements snapshot should have similar structure to full snapshot but be much smaller
+        let hasElementsSnapshot = elementsResult.contains("Elements Snapshot extracted successfully")
+        #expect(hasElementsSnapshot, "Should successfully extract elements snapshot")
+        
+        // Verify response is significantly smaller than full snapshot
+        let elementsSize = elementsResult.count
+        print("Elements snapshot size: \(elementsSize) characters")
+        
+        // Should have found some elements
+        #expect(elementIds.count > 0, "Should find some elements in Weather app")
+    }
+    
+    @Test("Compare elements_snapshot vs capture_ui_snapshot efficiency")
+    func testSnapshotEfficiencyComparison() async throws {
+        try await launchWeatherApp()
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        
+        // Capture both types of snapshots
+        let fullSnapshotResult = try await callTool("capture_ui_snapshot", [
+            "bundleID": weatherBundleID
+        ])
+        
+        let elementsOnlyResult = try await callTool("elements_snapshot", [
+            "bundleID": weatherBundleID
+        ])
+        
+        // Compare sizes
+        let fullSize = fullSnapshotResult.count
+        let elementsSize = elementsOnlyResult.count
+        
+        print("Full snapshot size: \(fullSize) characters")
+        print("Elements-only size: \(elementsSize) characters")
+        print("Size reduction: \(fullSize - elementsSize) characters (\(100 * elementsSize / fullSize)% of original)")
+        
+        // Elements-only should be significantly smaller
+        #expect(elementsSize < fullSize, "Elements-only snapshot should be smaller than full snapshot")
+        
+        // But both should find similar elements
+        let fullElementIds = extractElementIds(from: fullSnapshotResult)
+        let elementsElementIds = extractElementIds(from: elementsOnlyResult)
+        
+        print("Full snapshot found \(fullElementIds.count) elements")
+        print("Elements-only found \(elementsElementIds.count) elements")
+        
+        // Element counts should be identical (same UI state)
+        #expect(elementsElementIds.count == fullElementIds.count, "Both snapshots should find the same number of elements")
+        
+        // Element IDs should be identical
+        let elementsSet = Set(elementsElementIds)
+        let fullSet = Set(fullElementIds)
+        #expect(elementsSet == fullSet, "Both snapshots should find the same element IDs")
+    }
+    
     // MARK: - Location Search Tests
     
     @Test("Can interact with Weather app location buttons")
@@ -668,6 +744,8 @@ struct WeatherAppTests {
             result = await server.handleScrollWindow(arguments)
         case "capture_ui_snapshot":
             result = await server.handleCaptureUISnapshot(arguments)
+        case "elements_snapshot":
+            result = await server.handleElementsSnapshot(arguments)
         case "wait_time":
             result = await server.handleWaitTime(arguments)
         case "list_running_applications":

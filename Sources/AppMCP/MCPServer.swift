@@ -217,7 +217,57 @@ public final class AppMCPServer: @unchecked Sendable {
                 // UI Snapshot Tool
                 MCP.Tool(
                     name: "capture_ui_snapshot",
-                    description: "Capture window screenshot and extract element IDs with type-safe role filtering for efficient element discovery",
+                    description: "Capture screenshot + UI elements",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "bundleID": [
+                                "type": "string",
+                                "description": "Application bundle ID"
+                            ],
+                            "window": [
+                                "type": ["string", "number"],
+                                "description": "Window title or index (optional)"
+                            ],
+                            "query": [
+                                "type": "object",
+                                "description": "Element filtering options - specify role, title, identifier, or enabled state to filter elements at source for efficiency",
+                                "properties": [
+                                    "role": [
+                                        "type": "string",
+                                        "enum": [
+                                            "button", "textfield", "text", "image", "menu", "list", "table", 
+                                            "checkbox", "radio", "slider", "link", "group", "window", "toolbar",
+                                            "menubar", "menuitem", "popupbutton", "searchfield", "scrollarea",
+                                            "tab", "tabgroup", "splitgroup", "outline", "browser", "application",
+                                            "combobox", "progressindicator", "disclosure", "sheet", "drawer",
+                                            "helpbutton", "colorwell", "ruler", "cell", "row", "column"
+                                        ],
+                                        "description": "Element role filter - UI element type to search for"
+                                    ],
+                                    "title": [
+                                        "type": "string",
+                                        "description": "Element title/text filter (partial match)"
+                                    ],
+                                    "identifier": [
+                                        "type": "string",
+                                        "description": "Element identifier filter (exact match)"
+                                    ],
+                                    "enabled": [
+                                        "type": "boolean",
+                                        "description": "Filter by enabled state - true for interactive elements, false for disabled elements (default: true)"
+                                    ]
+                                ]
+                            ]
+                        ],
+                        "required": ["bundleID"]
+                    ]
+                ),
+                
+                // Elements Snapshot Tool (without screenshot)
+                MCP.Tool(
+                    name: "elements_snapshot",
+                    description: "Extract UI elements only",
                     inputSchema: [
                         "type": "object",
                         "properties": [
@@ -301,6 +351,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleScrollWindow(arguments)
             case "capture_ui_snapshot":
                 return await self.handleCaptureUISnapshot(arguments)
+            case "elements_snapshot":
+                return await self.handleElementsSnapshot(arguments)
             case "wait_time":
                 return await self.handleWaitTime(arguments)
             case "list_running_applications":
@@ -360,6 +412,15 @@ public final class AppMCPServer: @unchecked Sendable {
             return CallTool.Result(content: [.text(result)])
         } catch {
             return handleToolError(error, toolName: "capture_ui_snapshot")
+        }
+    }
+    
+    internal func handleElementsSnapshot(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await performElementsSnapshot(arguments)
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return handleToolError(error, toolName: "elements_snapshot")
         }
     }
     
@@ -688,6 +749,39 @@ public final class AppMCPServer: @unchecked Sendable {
         
         Screenshot:
         data:image/jpeg;base64,\(base64Data)
+        
+        UI Elements:
+        \(elementsJson)
+        """
+    }
+    
+    private func performElementsSnapshot(_ arguments: [String: MCP.Value]) async throws -> String {
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        let window = try await resolveWindow(from: arguments, for: app)
+        
+        // Extract query options for AXQuery
+        let queryOptions = extractOptionalObject(from: arguments, key: "query")
+        let axQuery = try buildAXQuery(from: queryOptions)
+        
+        // Capture UI snapshot using AppPilot with AXQuery filtering (no screenshot needed)
+        let snapshot = try await pilot.snapshot(window: window, query: axQuery)
+        
+        // Build element hierarchy with IDs using query-filtered elements  
+        let elementsJson = try AXUI.AIFormatHelpers.convertToAIFormat(
+            elements: snapshot.elements
+        )
+        
+        // Build metadata information
+        let windowTitle = snapshot.windowInfo.title ?? "Unknown Window"
+        let elementCount = snapshot.elements.count
+        
+        return """
+        Elements Snapshot extracted successfully:
+        - Application: \(bundleID)
+        - Window: \(windowTitle)
+        - Elements found: \(elementCount)
+        - Captured: \(Date().formatted())
         
         UI Elements:
         \(elementsJson)
