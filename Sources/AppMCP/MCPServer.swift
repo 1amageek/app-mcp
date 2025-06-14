@@ -2,6 +2,10 @@ import Foundation
 import MCP
 import AppPilot
 import AppKit
+import AXUI
+
+// Note: Both AppPilot and AXUI define Role types
+// We need to be explicit about which Role to use in each context
 
 // MARK: - AppPilot Compatibility Notes
 // AppPilot v3.0+ removed the UIElement.id property
@@ -47,19 +51,32 @@ public final class AppMCPServer: @unchecked Sendable {
     
     // MARK: - Element Identification Helpers
     
+    /// Compute center point from AXElement position and size
+    private func centerPoint(for element: AXUI.AXElement) -> CGPoint {
+        guard let position = element.position, let size = element.size else {
+            return CGPoint(x: 0, y: 0)
+        }
+        return CGPoint(
+            x: position.x + size.width / 2,
+            y: position.y + size.height / 2
+        )
+    }
+    
     /// Validate that an element is accessible and can be interacted with
-    private func validateElementAccessibility(_ element: AIElement) throws {
-        // Check if element has a valid center point
-        if element.centerPoint.x == 0 && element.centerPoint.y == 0 {
+    private func validateElementAccessibility(_ element: AXUI.AXElement) throws {
+        // Check if element has a valid position
+        guard let position = element.position else {
+            throw AppMCPError.elementNotAccessible("Element has no position information")
+        }
+        
+        if position.x == 0 && position.y == 0 {
             throw AppMCPError.elementNotAccessible("Element has no valid position")
         }
         
-        // Check bounds if available
-        if let bounds = element.bounds, bounds.count >= 4 {
-            let width = bounds[2]
-            let height = bounds[3]
-            if width <= 0 || height <= 0 {
-                throw AppMCPError.elementNotAccessible("Element has invalid bounds: width=\(width), height=\(height)")
+        // Check size if available
+        if let size = element.size {
+            if size.width <= 0 || size.height <= 0 {
+                throw AppMCPError.elementNotAccessible("Element has invalid size: width=\(size.width), height=\(size.height)")
             }
         }
         
@@ -67,13 +84,13 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     /// Get a human-readable description for an element for error messages
-    private func getElementDescription(_ element: AIElement) -> String {
-        if let title = element.title, !title.isEmpty {
-            return title
+    private func getElementDescription(_ element: AXUI.AXElement) -> String {
+        if let description = element.description, !description.isEmpty {
+            return description
         } else if let identifier = element.identifier, !identifier.isEmpty {
             return identifier
-        } else if let value = element.value, !value.isEmpty {
-            return value
+        } else if !element.id.isEmpty {
+            return element.id
         } else if let role = element.role {
             return "\(role.rawValue) element"
         } else {
@@ -200,7 +217,7 @@ public final class AppMCPServer: @unchecked Sendable {
                 // UI Snapshot Tool
                 MCP.Tool(
                     name: "capture_ui_snapshot",
-                    description: "Capture window screenshot and extract clickable element IDs",
+                    description: "Capture window screenshot and extract element IDs with type-safe role filtering for efficient element discovery",
                     inputSchema: [
                         "type": "object",
                         "properties": [
@@ -211,6 +228,36 @@ public final class AppMCPServer: @unchecked Sendable {
                             "window": [
                                 "type": ["string", "number"],
                                 "description": "Window title or index (optional)"
+                            ],
+                            "query": [
+                                "type": "object",
+                                "description": "Element filtering options - specify role, title, identifier, or enabled state to filter elements at source for efficiency",
+                                "properties": [
+                                    "role": [
+                                        "type": "string",
+                                        "enum": [
+                                            "button", "textfield", "text", "image", "menu", "list", "table", 
+                                            "checkbox", "radio", "slider", "link", "group", "window", "toolbar",
+                                            "menubar", "menuitem", "popupbutton", "searchfield", "scrollarea",
+                                            "tab", "tabgroup", "splitgroup", "outline", "browser", "application",
+                                            "combobox", "progressindicator", "disclosure", "sheet", "drawer",
+                                            "helpbutton", "colorwell", "ruler", "cell", "row", "column"
+                                        ],
+                                        "description": "Element role filter - UI element type to search for"
+                                    ],
+                                    "title": [
+                                        "type": "string",
+                                        "description": "Element title/text filter (partial match)"
+                                    ],
+                                    "identifier": [
+                                        "type": "string",
+                                        "description": "Element identifier filter (exact match)"
+                                    ],
+                                    "enabled": [
+                                        "type": "boolean",
+                                        "description": "Filter by enabled state - true for interactive elements, false for disabled elements (default: true)"
+                                    ]
+                                ]
                             ]
                         ],
                         "required": ["bundleID"]
@@ -282,20 +329,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     internal func handleInputText(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
         do {
-            guard case .string(_) = arguments["text"] else {
-                throw AppMCPError.invalidParameters("Missing 'text' parameter")
-            }
-            
-            let method = extractOptionalString(from: arguments, key: "method") ?? "type"
-            let clearFirst = extractOptionalBool(from: arguments, key: "clearFirst") ?? false
-            
-            let result: String
-            if method == "setValue" {
-                result = try await performSetText(arguments)
-            } else {
-                result = try await performType(arguments, clearFirst: clearFirst)
-            }
-            
+            let result = try await performSetText(arguments)
             return CallTool.Result(content: [.text(result)])
         } catch {
             return handleToolError(error, toolName: "input_text")
@@ -426,43 +460,6 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    private func performType(_ arguments: [String: MCP.Value], clearFirst: Bool = false) async throws -> String {
-        guard case .string(let text) = arguments["text"] else {
-            throw AppMCPError.invalidParameters("Missing 'text' parameter")
-        }
-        
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
-        
-        if let elementObject = extractOptionalObject(from: arguments, key: "element") {
-            let element = try await findElementWithCriteria(elementObject, in: window)
-            
-            // Validate element accessibility
-            try validateElementAccessibility(element)
-            
-            // Click element to focus it
-            _ = try await pilot.click(window: window, at: element.centerPoint)
-            
-            if clearFirst {
-                // Clear existing text first by selecting all
-                _ = try await pilot.keyCombination([.a], modifiers: [.command])
-            }
-            
-            // Type the text
-            _ = try await pilot.type(text, window: window)
-            
-            return "Typed '\(text)' into \(element.role?.rawValue ?? "unknown") '\(getElementDescription(element))'"
-        } else {
-            if clearFirst {
-                // Clear focused element first - use Cmd+A to select all, then type to replace
-                _ = try await pilot.type("", window: window)
-            }
-            
-            _ = try await pilot.type(text, window: window)
-            return "Typed '\(text)' into focused element"
-        }
-    }
     
     
     private func performWait(_ arguments: [String: MCP.Value]) async throws -> String {
@@ -534,84 +531,38 @@ public final class AppMCPServer: @unchecked Sendable {
         return "Scrolled at element '\(elementId)' location (\(scrollPoint.x), \(scrollPoint.y)) with delta (\(deltaX), \(deltaY))"
     }
     
-    private func performFind(_ arguments: [String: MCP.Value]) async throws -> String {
-        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
-        let window = try await resolveWindow(from: arguments, for: app)
-        
-        let limit = extractOptionalDouble(from: arguments, key: "limit").map { Int($0) } ?? 10
-        
-        // Create criteria from arguments (excluding bundleID, window, and limit)
-        var criteria: [String: MCP.Value] = [:]
-        for (key, value) in arguments {
-            if key != "bundleID" && key != "window" && key != "limit" {
-                criteria[key] = value
-            }
-        }
-        
-        // Find elements with user-friendly criteria using type-safe method
-        let userType = extractOptionalString(from: criteria, key: "type")
-        let exactText = extractOptionalString(from: criteria, key: "text")
-        let containingText = extractOptionalString(from: criteria, key: "containing")
-        let placeholderText = extractOptionalString(from: criteria, key: "placeholder")
-        let labelText = extractOptionalString(from: criteria, key: "label")
-        let index = extractOptionalDouble(from: criteria, key: "index").map { Int($0) }
-        
-        let elements = try await findElementsWithTypeSafeCriteria(
-            in: window,
-            userType: userType,
-            exactText: exactText,
-            containingText: containingText,
-            placeholderText: placeholderText,
-            labelText: labelText,
-            index: index
-        )
-        let limitedElements = Array(elements.prefix(limit))
-        
-        if limitedElements.isEmpty {
-            let criteriaDesc = describeCriteria(criteria)
-            return "No elements found matching criteria: \(criteriaDesc.isEmpty ? "all elements" : criteriaDesc)"
-        }
-        
-        // Build hierarchical structure
-        return try await buildHierarchicalResponse(elements: limitedElements, totalCount: elements.count, limit: limit)
-    }
     
     private func getUserFriendlyType(for roleString: String?) -> String {
         guard let roleString = roleString else { return "unknown" }
         
-        // Convert string role to Role if possible
-        guard let role = Role(rawValue: roleString) else { return roleString }
-        
-        switch role {
-        case .button, .popUpButton, .menuBarItem, .tabGroup:
+        // Simple string-based mapping for user-friendly types
+        switch roleString.lowercased() {
+        case "button", "popupbutton", "menubaritem", "tabgroup":
             return "button"
-        case .textField, .field:
+        case "textfield", "field":
             return "textfield"
-        case .staticText:
+        case "statictext", "text":
             return "text"
-        case .image:
+        case "image":
             return "image"
-        case .menu, .menuBar, .menuItem:
+        case "menu", "menubar", "menuitem":
             return "menu"
-        case .list, .row:
+        case "list", "row":
             return "list"
-        case .table, .cell:
+        case "table", "cell":
             return "table"
-        case .checkBox:
+        case "checkbox":
             return "checkbox"
-        case .radioButton:
+        case "radiobutton":
             return "radio"
-        case .slider:
+        case "slider":
             return "slider"
-        case .link:
+        case "link":
             return "link"
-        case .group, .scrollArea:
+        case "group", "scrollarea":
             return "group"
-        case .unknown:
-            return "unknown"
         default:
-            return role.rawValue
+            return roleString
         }
     }
     
@@ -630,7 +581,7 @@ public final class AppMCPServer: @unchecked Sendable {
         let originalImage = try await pilot.capture(window: window)
         
         // Resize image to reasonable dimensions for MCP
-        let cgImage = resizeImageIfNeeded(originalImage, maxDimension: 600)
+        let cgImage = resizeImageIfNeeded(originalImage, maxDimension: 480)
         
         // Use AppPilot's ScreenCaptureUtility for image conversion with compression
         let imageData: Data
@@ -695,22 +646,28 @@ public final class AppMCPServer: @unchecked Sendable {
         let app = try await pilot.findApplication(bundleId: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
         
-        // Capture complete UI snapshot using AppPilot
-        let snapshot = try await pilot.snapshot(window: window, metadata: nil)
+        // Extract query options for AXQuery
+        let queryOptions = extractOptionalObject(from: arguments, key: "query")
+        let axQuery = try buildAXQuery(from: queryOptions)
+        
+        // Capture UI snapshot using AppPilot with AXQuery filtering
+        let snapshot = try await pilot.snapshot(window: window, query: axQuery)
         
         // Resize image for MCP compatibility
         guard let originalImage = snapshot.image else {
             throw AppMCPError.systemError("Failed to extract image from snapshot")
         }
-        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 600)
+        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 480)
         
         // Convert to JPEG for efficiency
         guard let imageData = ScreenCaptureUtility.convertToJPEG(resizedImage, quality: 0.4) else {
             throw AppMCPError.systemError("Failed to convert snapshot to JPEG")
         }
         
-        // Build element hierarchy with IDs
-        let elementsJson = try buildElementsJsonResponse(snapshot.elements)
+        // Build element hierarchy with IDs using query-filtered elements  
+        let elementsJson = try AXUI.AIFormatHelpers.convertToAIFormat(
+            elements: snapshot.elements
+        )
         
         // Build metadata information
         let windowTitle = snapshot.windowInfo.title ?? "Unknown Window"
@@ -727,7 +684,7 @@ public final class AppMCPServer: @unchecked Sendable {
         - Format: JPEG
         - Size: \(fileSizeKB) KB
         - Elements found: \(elementCount)
-        - Timestamp: \(snapshot.timestamp)
+        - Captured: \(Date().formatted())
         
         Screenshot:
         data:image/jpeg;base64,\(base64Data)
@@ -737,44 +694,31 @@ public final class AppMCPServer: @unchecked Sendable {
         """
     }
     
-    private func buildElementsJsonResponse(_ elements: [AIElement]) throws -> String {
-        var elementsData: [[String: Any]] = []
-        
-        for element in elements {
-            var elementData: [String: Any] = [
-                "id": element.id,
-                "role": element.role?.rawValue ?? "unknown"
-            ]
-            
-            if let title = element.title, !title.isEmpty {
-                elementData["title"] = title
-            }
-            
-            if let value = element.value, !value.isEmpty {
-                elementData["value"] = value
-            }
-            
-            if let identifier = element.identifier, !identifier.isEmpty {
-                elementData["identifier"] = identifier
-            }
-            
-            if let bounds = element.bounds, bounds.count == 4 {
-                elementData["bounds"] = [
-                    "x": bounds[0],
-                    "y": bounds[1], 
-                    "width": bounds[2],
-                    "height": bounds[3]
-                ]
-            }
-            
-            elementData["enabled"] = element.isEnabled
-            elementData["userFriendlyType"] = getUserFriendlyType(for: element.role?.rawValue)
-            
-            elementsData.append(elementData)
+    /// Build AXQuery from MCP query parameters
+    private func buildAXQuery(from queryOptions: [String: MCP.Value]?) throws -> AXUI.AXQuery? {
+        guard let queryOptions = queryOptions else {
+            return nil // Return nil for no filtering (all elements)
         }
         
-        let jsonData = try JSONSerialization.data(withJSONObject: elementsData, options: [.prettyPrinted])
-        return String(data: jsonData, encoding: .utf8) ?? "[]"
+        // Extract query parameters
+        let role = extractOptionalString(from: queryOptions, key: "role")
+        
+        // For now, create a simple query based on role only
+        // TODO: Expand with more AXQuery features as they become available
+        if let role = role, let axuiRole = convertToAXUIRole(role) {
+            var query = AXUI.AXQuery()
+            query.role = axuiRole
+            return query
+        }
+        
+        // Return nil if no supported filters are specified
+        return nil
+    }
+    
+    /// Convert user-friendly role string to AXUI.Role
+    private func convertToAXUIRole(_ roleString: String) -> AXUI.Role? {
+        // Try to create AXUI.Role directly from string
+        return AXUI.Role(rawValue: roleString.capitalized)
     }
     
     // MARK: - Image Processing Utilities
@@ -1009,22 +953,22 @@ public final class AppMCPServer: @unchecked Sendable {
     // MARK: - Dynamic Element Discovery
     
     /// Find search field dynamically using UI snapshot analysis
-    private func findSearchFieldDynamically(in window: WindowHandle) async throws -> AIElement? {
+    private func findSearchFieldDynamically(in window: WindowHandle) async throws -> AXUI.AXElement? {
         let snapshot = try await pilot.snapshot(window: window)
         
         // Search for potential search field candidates
-        var searchCandidates: [AIElement] = []
+        var searchCandidates: [AXUI.AXElement] = []
         for element in snapshot.elements {
             // Check role (various search field implementations)
             let roleMatches = ["TextField", "SearchField", "Field"].contains(element.role?.rawValue ?? "")
             
-            // Check title/value/identifier for search-related text
-            let titleText = element.title?.lowercased() ?? ""
-            let valueText = element.value?.lowercased() ?? ""
-            let idText = element.identifier?.lowercased() ?? ""
+            // Check description/identifier for search-related text
+            let descriptionText = element.description?.lowercased() ?? ""
+            let idText = element.id.lowercased()
+            let identifierText = element.identifier?.lowercased() ?? ""
             
-            let hasSearchInText = titleText.contains("search") || titleText.contains("検索") ||
-                                valueText.contains("search") || valueText.contains("検索") ||
+            let hasSearchInText = descriptionText.contains("search") || descriptionText.contains("検索") ||
+                                identifierText.contains("search") || identifierText.contains("検索") ||
                                 idText.contains("search") || idText.contains("検索")
             
             // Check element properties for search field characteristics
@@ -1032,11 +976,11 @@ public final class AppMCPServer: @unchecked Sendable {
             var isInTopArea = false
             var isInToolbarArea = false
             
-            if let bounds = element.bounds, bounds.count >= 4 {
-                let width = bounds[2] - bounds[0]
-                let height = bounds[3] - bounds[1]
-                let maxY = bounds[3]
-                let minY = bounds[1]
+            if let position = element.position, let size = element.size {
+                let width = size.width
+                let height = size.height
+                let maxY = position.y + height
+                let minY = position.y
                 
                 hasReasonableSize = width > 100 && height > 15
                 isInTopArea = maxY > -1050 // Top area of window for search fields
@@ -1052,15 +996,19 @@ public final class AppMCPServer: @unchecked Sendable {
         // Prefer elements with search-related text, then by role, then by position
         return searchCandidates.sorted { first, second in
             // Check if elements have search-related text
-            let firstTitle = first.title?.lowercased() ?? ""
-            let firstId = first.identifier?.lowercased() ?? ""
-            let firstHasSearch = firstTitle.contains("search") || first.title?.contains("検索") == true ||
-                               firstId.contains("search") || first.identifier?.contains("検索") == true
+            let firstDescription = first.description?.lowercased() ?? ""
+            let firstId = first.id.lowercased()
+            let firstIdentifier = first.identifier?.lowercased() ?? ""
+            let firstHasSearch = firstDescription.contains("search") || first.description?.contains("検索") == true ||
+                               firstId.contains("search") || first.id.contains("検索") ||
+                               firstIdentifier.contains("search") || first.identifier?.contains("検索") == true
             
-            let secondTitle = second.title?.lowercased() ?? ""
-            let secondId = second.identifier?.lowercased() ?? ""
-            let secondHasSearch = secondTitle.contains("search") || second.title?.contains("検索") == true ||
-                                secondId.contains("search") || second.identifier?.contains("検索") == true
+            let secondDescription = second.description?.lowercased() ?? ""
+            let secondId = second.id.lowercased()
+            let secondIdentifier = second.identifier?.lowercased() ?? ""
+            let secondHasSearch = secondDescription.contains("search") || second.description?.contains("検索") == true ||
+                                secondId.contains("search") || second.id.contains("検索") ||
+                                secondIdentifier.contains("search") || second.identifier?.contains("検索") == true
             
             if firstHasSearch != secondHasSearch {
                 return firstHasSearch
@@ -1077,9 +1025,11 @@ public final class AppMCPServer: @unchecked Sendable {
             }
             
             // Prefer higher elements (closer to top of window)
-            if let firstBounds = first.bounds, firstBounds.count >= 4,
-               let secondBounds = second.bounds, secondBounds.count >= 4 {
-                return firstBounds[3] > secondBounds[3] // Compare maxY
+            if let firstPosition = first.position, let firstSize = first.size,
+               let secondPosition = second.position, let secondSize = second.size {
+                let firstMaxY = firstPosition.y + firstSize.height
+                let secondMaxY = secondPosition.y + secondSize.height
+                return firstMaxY > secondMaxY // Compare maxY
             }
             
             return false
@@ -1087,45 +1037,6 @@ public final class AppMCPServer: @unchecked Sendable {
     }
     
     // MARK: - User-Friendly Element Type Mapping
-    
-    private func mapUserTypeToElementRoles(_ userType: String) -> [Role] {
-        switch userType.lowercased() {
-        case "button":
-            return [.button, .popUpButton, .menuBarItem, .tabGroup]
-        case "textfield":
-            return [.textField]
-        case "text":
-            return [.staticText]
-        case "image":
-            return [.image]
-        case "menu":
-            return [.menu, .menuBar, .menuItem]
-        case "list":
-            return [.list, .row]
-        case "table":
-            return [.table, .cell, .row]
-        case "checkbox":
-            return [.checkBox]
-        case "radio":
-            return [.radioButton]
-        case "slider":
-            return [.slider]
-        case "link":
-            return [.link]
-        case "group":
-            return [.group, .scrollArea]
-        case "unknown":
-            return [.unknown]
-        default:
-            // Return all common interactive elements if type is unknown
-            // Note: .unknown elements are excluded to avoid performance issues with large element trees
-            return [.button, .popUpButton, .textField, .staticText, 
-                   .image, .menuItem, .tabGroup, .link, .checkBox, .radioButton, .list, .row, .cell]
-        }
-    }
-    
-    
-    
     
     private func resolveWindow(from arguments: [String: MCP.Value], for app: AppHandle) async throws -> WindowHandle {
         // Check for explicit window parameter
@@ -1157,243 +1068,6 @@ public final class AppMCPServer: @unchecked Sendable {
         }
         
         throw AppMCPError.windowNotFound("No windows found for application")
-    }
-    
-    private func findElementWithCriteria(_ criteria: [String: MCP.Value], in window: WindowHandle) async throws -> AIElement {
-        // Validate criteria is not empty
-        guard !criteria.isEmpty else {
-            throw AppMCPError.invalidParameters("Element criteria cannot be empty")
-        }
-        
-        // Extract search criteria using type-safe methods
-        let userType = extractOptionalString(from: criteria, key: "type")
-        let exactText = extractOptionalString(from: criteria, key: "text")
-        let containingText = extractOptionalString(from: criteria, key: "containing")
-        let placeholderText = extractOptionalString(from: criteria, key: "placeholder")
-        let labelText = extractOptionalString(from: criteria, key: "label")
-        let index = extractOptionalDouble(from: criteria, key: "index").map { Int($0) }
-        
-        // Validate that we have some search criteria - AppPilot requires at least one criterion
-        let hasSearchCriteria = exactText != nil || containingText != nil || placeholderText != nil || labelText != nil
-        if !hasSearchCriteria && userType == nil {
-            throw AppMCPError.invalidParameters("At least one search criterion (type, text, containing, placeholder, or label) must be provided")
-        }
-        
-        // Convert to internal search criteria
-        let elements = try await findElementsWithTypeSafeCriteria(
-            in: window,
-            userType: userType,
-            exactText: exactText,
-            containingText: containingText,
-            placeholderText: placeholderText,
-            labelText: labelText,
-            index: index
-        )
-        
-        guard let element = elements.first else {
-            let criteriaDesc = describeCriteria(criteria)
-            throw AppMCPError.elementNotFound("No element found matching criteria: \(criteriaDesc)")
-        }
-        
-        return element
-    }
-    
-    private func findElementsWithTypeSafeCriteria(
-        in window: WindowHandle,
-        userType: String?,
-        exactText: String?,
-        containingText: String?,
-        placeholderText: String?,
-        labelText: String?,
-        index: Int?
-    ) async throws -> [AIElement] {
-        // Convert user type to internal element roles
-        let targetRoles: [Role]?
-        if let userType = userType {
-            targetRoles = mapUserTypeToElementRoles(userType)
-        } else {
-            targetRoles = nil
-        }
-        
-        // Determine search criteria - AppPilot requires title OR identifier for efficient search
-        let searchTitle = exactText ?? containingText ?? placeholderText ?? labelText
-        let searchIdentifier: String? = nil // Future: Add identifier-based search to element criteria
-        
-        // Find all elements matching the roles
-        var matchingElements: [AIElement] = []
-        
-        if let roles = targetRoles {
-            for role in roles {
-                do {
-                    if searchTitle != nil || searchIdentifier != nil {
-                        // Use specific search when we have title or identifier
-                        let element = try await pilot.findElement(in: window, role: role, title: searchTitle, identifier: searchIdentifier)
-                        matchingElements.append(element)
-                    } else {
-                        // Fallback to broader search and filter later
-                        let elementsForRole = try await pilot.findElements(in: window, role: role, title: nil, identifier: nil)
-                        matchingElements.append(contentsOf: elementsForRole)
-                    }
-                } catch {
-                    // Continue searching other roles if this one fails
-                    // This is expected behavior in AppPilot when elements aren't found
-                    continue
-                }
-            }
-        } else {
-            // Get all elements if no specific role
-            matchingElements = try await pilot.findElements(in: window, role: nil, title: searchTitle, identifier: searchIdentifier)
-        }
-        
-        // Apply additional text-based filters for broader searches
-        if searchTitle == nil {
-            matchingElements = matchingElements.filter { element in
-                // Exact text match
-                if let exactText = exactText {
-                    return element.title == exactText || element.value == exactText
-                }
-                
-                // Containing text match
-                if let containingText = containingText {
-                    let elementTexts = [element.title, element.value].compactMap { $0 }
-                    return elementTexts.contains { text in
-                        text.localizedCaseInsensitiveContains(containingText)
-                    }
-                }
-                
-                // Placeholder text (for text fields)
-                if let placeholderText = placeholderText {
-                    return element.title?.localizedCaseInsensitiveContains(placeholderText) == true
-                }
-                
-                // Label text
-                if let labelText = labelText {
-                    return element.title?.localizedCaseInsensitiveContains(labelText) == true
-                }
-                
-                return true
-            }
-        }
-        
-        // Apply index selection if specified
-        if let index = index {
-            guard index >= 0 && index < matchingElements.count else {
-                throw AppMCPError.elementNotFound("Index \(index) out of range. Found \(matchingElements.count) matching elements.")
-            }
-            return [matchingElements[index]]
-        }
-        
-        return matchingElements
-    }
-    
-    
-    private func describeCriteria(_ criteria: [String: MCP.Value]) -> String {
-        var parts: [String] = []
-        
-        if let type = extractOptionalString(from: criteria, key: "type") {
-            parts.append("type=\(type)")
-        }
-        if let text = extractOptionalString(from: criteria, key: "text") {
-            parts.append("text='\(text)'")
-        }
-        if let containing = extractOptionalString(from: criteria, key: "containing") {
-            parts.append("containing='\(containing)'")
-        }
-        if let placeholder = extractOptionalString(from: criteria, key: "placeholder") {
-            parts.append("placeholder='\(placeholder)'")
-        }
-        if let label = extractOptionalString(from: criteria, key: "label") {
-            parts.append("label='\(label)'")
-        }
-        if let index = extractOptionalDouble(from: criteria, key: "index") {
-            parts.append("index=\(Int(index))")
-        }
-        
-        return parts.isEmpty ? "no criteria" : parts.joined(separator: ", ")
-    }
-    
-    private func buildHierarchicalResponse(elements: [AIElement], totalCount: Int, limit: Int) async throws -> String {
-        // Group elements by functional areas
-        let functionalGroups = groupElementsByFunction(elements)
-        
-        var response = "Found \(totalCount) element\(totalCount == 1 ? "" : "s")"
-        if totalCount > limit {
-            response += " (showing first \(limit))"
-        }
-        response += ":\n"
-        
-        // Build structured output
-        for (groupName, groupElements) in functionalGroups {
-            response += "\n[\(groupName)]:\n"
-            for element in groupElements {
-                let shortInfo = buildElementSummary(element)
-                response += "  \(shortInfo)\n"
-            }
-        }
-        
-        return response
-    }
-    
-    private func groupElementsByFunction(_ elements: [AIElement]) -> [String: [AIElement]] {
-        var groups: [String: [AIElement]] = [:]
-        
-        for element in elements {
-            let groupName = determineElementGroup(element)
-            if groups[groupName] == nil {
-                groups[groupName] = []
-            }
-            groups[groupName]?.append(element)
-        }
-        
-        return groups
-    }
-    
-    private func determineElementGroup(_ element: AIElement) -> String {
-        let userType = getUserFriendlyType(for: element.role?.rawValue)
-        
-        // Group by UI patterns
-        if userType == "textfield" {
-            return "Input Fields"
-        } else if userType == "button" {
-            return "Controls"
-        } else if userType == "text" {
-            if let title = element.title, !title.isEmpty {
-                return "Content"
-            } else {
-                return "Labels"
-            }
-        } else if userType == "list" || userType == "table" {
-            return "Data"
-        } else if userType == "menu" {
-            return "Navigation"
-        } else {
-            return "Other"
-        }
-    }
-    
-    private func buildElementSummary(_ element: AIElement) -> String {
-        let userType = getUserFriendlyType(for: element.role?.rawValue)
-        let displayText = extractDisplayText(element)
-        let coordinates = "(\(Int(element.centerPoint.x)), \(Int(element.centerPoint.y)))"
-        
-        if !displayText.isEmpty {
-            return "\(userType): \"\(displayText)\" at \(coordinates)"
-        } else {
-            return "\(userType) at \(coordinates)"
-        }
-    }
-    
-    private func extractDisplayText(_ element: AIElement) -> String {
-        // Extract meaningful text, avoiding internal IDs
-        if let title = element.title, !title.isEmpty && !title.hasPrefix("win_") {
-            return title
-        }
-        if let value = element.value, !value.isEmpty && !value.hasPrefix("win_") {
-            return value
-        }
-        
-        // For elements without meaningful text, use role description
-        return ""
     }
     
     // MARK: - Error Handling Helpers

@@ -23,7 +23,7 @@ struct ScreenshotUtils {
             "format": .string(format)
         ]
         
-        let result = await server.handleCaptureScreenshot(arguments)
+        let result = await server.handleCaptureUISnapshot(arguments)
         
         // Check if screenshot was successful
         guard !(result.isError ?? false),
@@ -38,7 +38,7 @@ struct ScreenshotUtils {
             : "png"
         
         // Extract data URL from the response (it's on the last line)
-        let lines = base64Data.components(separatedBy: .newlines)
+        let lines = base64Data.components(separatedBy: CharacterSet.newlines)
         let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
         // Verify data URL format (accept both PNG and JPEG as AppMCP may optimize)

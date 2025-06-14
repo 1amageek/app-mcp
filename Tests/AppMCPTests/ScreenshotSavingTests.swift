@@ -19,7 +19,7 @@ struct ScreenshotSavingTests {
             "format": .string("png")
         ]
         
-        let result = await server.handleCaptureScreenshot(arguments)
+        let result = await server.handleCaptureUISnapshot(arguments)
         
         // Verify screenshot was taken successfully
         #expect(!(result.isError ?? false), "Screenshot should be taken without error")
@@ -30,7 +30,7 @@ struct ScreenshotSavingTests {
         }
         
         // Extract data URL from the response (it's on the last line)
-        let lines = base64Data.components(separatedBy: .newlines)
+        let lines = base64Data.components(separatedBy: CharacterSet.newlines)
         let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
         // Verify it's a base64 data URL (PNG or JPEG since AppMCP may optimize format)
@@ -89,7 +89,7 @@ struct ScreenshotSavingTests {
             "format": .string("jpeg")
         ]
         
-        let result = await server.handleCaptureScreenshot(arguments)
+        let result = await server.handleCaptureUISnapshot(arguments)
         
         // Verify screenshot was taken successfully
         #expect(!(result.isError ?? false), "Finder screenshot should be taken without error")
@@ -100,7 +100,7 @@ struct ScreenshotSavingTests {
         }
         
         // Extract data URL from the response (it's on the last line)
-        let lines = base64Data.components(separatedBy: .newlines)
+        let lines = base64Data.components(separatedBy: CharacterSet.newlines)
         let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
         // Verify it's a base64 data URL (JPEG or PNG since format may be optimized)
@@ -169,7 +169,7 @@ struct ScreenshotSavingTests {
                 "format": .string("png")
             ]
             
-            let result = await server.handleCaptureScreenshot(arguments)
+            let result = await server.handleCaptureUISnapshot(arguments)
             
             if result.isError ?? false {
                 print("⚠️ Could not capture \(appName) (may not be running)")
@@ -181,7 +181,7 @@ struct ScreenshotSavingTests {
             }
             
             // Extract data URL from the response
-            let lines = base64Data.components(separatedBy: .newlines)
+            let lines = base64Data.components(separatedBy: CharacterSet.newlines)
             let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
             
             // Handle both PNG and JPEG formats
@@ -225,14 +225,14 @@ struct ScreenshotSavingTests {
             "bundleID": .string("com.apple.finder")
         ]
         
-        let result = await server.handleCaptureScreenshot(arguments)
+        let result = await server.handleCaptureUISnapshot(arguments)
         
         guard !(result.isError ?? false), case .text(let base64Data) = result.content.first else {
             return // Skip if no screenshot available
         }
         
         // Extract data URL from the response
-        let lines = base64Data.components(separatedBy: .newlines)
+        let lines = base64Data.components(separatedBy: CharacterSet.newlines)
         let dataURL = lines.last { $0.hasPrefix("data:image/") } ?? ""
         
         // Validate data URL format
