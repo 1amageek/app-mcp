@@ -15,6 +15,7 @@
 
 ### 🎯 **Visual Intelligence**
 - **Smart Screenshots**: Capture high-resolution app windows using ScreenCaptureKit
+- **OCR Text Recognition**: Extract text from screenshots using Apple's Vision Framework
 - **UI Tree Analysis**: Extract detailed accessibility hierarchies for precise element targeting
 - **Multi-App Discovery**: Identify and monitor multiple running applications simultaneously
 
@@ -209,13 +210,63 @@ Test Suite 'AppMCPTests' passed at 2025-06-04 16:42:04.049
 
 ---
 
+## 🛠 API Reference
+
+### MCP Tools
+
+AppMCP provides the following specialized tools for macOS automation:
+
+#### Screenshot & UI Analysis
+- **`capture_ui_snapshot`**: Capture screenshot with UI element hierarchy
+  - Optional text recognition via Vision Framework
+  - Element filtering with queries
+  - Returns base64 screenshot + structured UI data
+  
+- **`recognize_text_in_screenshot`**: 🆕 OCR text extraction from app windows
+  - Multi-language support (en-US, ja-JP, zh-Hans, etc.)
+  - Fast vs accurate recognition modes
+  - Confidence scores and bounding boxes
+
+#### Automation Controls
+- **`click_element`**: Element-based clicking with multi-button support
+- **`input_text`**: Text input with setValue/type methods
+- **`drag_drop`**: Drag and drop between elements
+- **`scroll_window`**: Scrolling at specific element locations
+
+#### App Discovery
+- **`list_running_applications`**: Get all running apps with metadata
+- **`list_application_windows`**: List windows with bounds and visibility
+
+### Text Recognition Features
+
+The Vision Framework integration provides powerful OCR capabilities:
+
+```json
+{
+  "bundleID": "com.apple.TextEdit",
+  "includeTextRecognition": true,
+  "recognitionLanguages": ["en-US", "ja-JP"],
+  "recognitionLevel": "accurate"
+}
+```
+
+**Recognition Results:**
+- Full text extraction in reading order
+- Individual text regions with confidence scores
+- Bounding boxes in normalized coordinates
+- Support for 50+ languages
+- Handwritten text detection
+
+---
+
 ## 🎯 Roadmap
 
-### 🌟 Current (v0.1.0)
+### 🌟 Current (v1.0.0)
 - [x] Weather app automation PoC
 - [x] Basic screenshot & UI tree extraction
 - [x] Mouse & keyboard automation
 - [x] Permission management
+- [x] Vision Framework OCR text recognition
 
 ### 🚀 Near Future (v0.2.0)
 - [ ] Multi-app simultaneous control

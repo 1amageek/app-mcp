@@ -87,6 +87,48 @@ swift test --enable-code-coverage
 - Only use `import Testing` in test files - no Package.swift changes needed
 - The testTarget should only depend on the main module: `dependencies: ["AppMCP"]`
 
+## Testing and Examples Policy
+
+### Python Test Client Policy
+**CRITICAL RULE - Single Test Client Only**:
+- **Use ONLY `Examples/test_client.py` for all Python testing**
+- **DO NOT create multiple test files in Examples directory**
+- All test scenarios should be implemented as methods in the unified test client
+- Add new test functionality by extending the existing `AppMCPTestClient` class
+- This prevents Examples directory from becoming cluttered with numerous files
+
+**Test Client Usage**:
+```bash
+# Run basic functionality tests
+python3 Examples/test_client.py basic
+
+# Run comprehensive test suite  
+python3 Examples/test_client.py comprehensive
+
+# Run demonstration of text recognition improvements
+python3 Examples/test_client.py demo
+```
+
+**Adding New Tests**:
+- Add new test methods to `AppMCPTestClient` class
+- Follow naming convention: `test_[functionality_name](self)`
+- Add to appropriate test suite in `run_basic_tests()` or `run_comprehensive_tests()`
+- Include proper error handling and result reporting
+- Document test purpose and expected behavior
+
+**Prohibited Examples**:
+- ❌ Creating separate files like `test_chrome.py`, `test_weather.py`, etc.
+- ❌ Multiple standalone test scripts
+- ❌ Demo files that should be part of the main test client
+- ❌ Temporary test files that are not cleaned up
+
+**Approved Examples Structure**:
+```
+Examples/
+├── test_client.py          # ONLY Python test file allowed
+└── README.md              # Documentation only
+```
+
 ### Lint & Format
 ```bash
 # Format Swift code (requires swift-format)

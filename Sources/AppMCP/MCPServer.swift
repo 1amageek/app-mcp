@@ -3,6 +3,7 @@ import MCP
 import AppPilot
 import AppKit
 import AXUI
+import Vision
 
 // Note: Both AppPilot and AXUI define Role types
 // We need to be explicit about which Role to use in each context
@@ -198,26 +199,10 @@ public final class AppMCPServer: @unchecked Sendable {
                     ]
                 ),
                 
-                // Utility Tools
-                MCP.Tool(
-                    name: "wait_time",
-                    description: "Wait for a specified duration",
-                    inputSchema: [
-                        "type": "object",
-                        "properties": [
-                            "duration": [
-                                "type": "number",
-                                "description": "Wait duration in seconds"
-                            ]
-                        ],
-                        "required": ["duration"]
-                    ]
-                ),
-                
                 // UI Snapshot Tool
                 MCP.Tool(
                     name: "capture_ui_snapshot",
-                    description: "Capture screenshot + UI elements",
+                    description: "Capture screenshot + UI elements with optional text recognition",
                     inputSchema: [
                         "type": "object",
                         "properties": [
@@ -258,7 +243,11 @@ public final class AppMCPServer: @unchecked Sendable {
                                         "description": "Filter by enabled state - true for interactive elements, false for disabled elements (default: true)"
                                     ]
                                 ]
-                            ]
+                            ],
+                            "includeTextRecognition": [
+                                "type": "boolean",
+                                "description": "Include OCR text recognition results (default: false)"
+                            ],
                         ],
                         "required": ["bundleID"]
                     ]
@@ -314,10 +303,35 @@ public final class AppMCPServer: @unchecked Sendable {
                     ]
                 ),
                 
+                // Text Recognition Tool
+                MCP.Tool(
+                    name: "read_content",
+                    description: "Capture screenshot and perform OCR text recognition with structured output",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "bundleID": [
+                                "type": "string",
+                                "description": "Application bundle ID"
+                            ],
+                            "window": [
+                                "type": ["string", "number"],
+                                "description": "Window title or index (optional)"
+                            ],
+                            "recognitionLevel": [
+                                "type": "string",
+                                "enum": ["accurate", "fast"],
+                                "description": "Recognition accuracy level (default: accurate)"
+                            ]
+                        ],
+                        "required": ["bundleID"]
+                    ]
+                ),
+                
                 // Information Tools
                 MCP.Tool(
                     name: "list_running_applications",
-                    description: "List running applications with bundle IDs and names",
+                    description: "List running App on macOS with bundle IDs and names",
                     inputSchema: [
                         "type": "object",
                         "properties": [:],
@@ -327,7 +341,7 @@ public final class AppMCPServer: @unchecked Sendable {
                 
                 MCP.Tool(
                     name: "list_application_windows",
-                    description: "List application windows with titles and coordinates",
+                    description: "List App windows with titles and coordinates",
                     inputSchema: [
                         "type": "object",
                         "properties": [:],
@@ -355,6 +369,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleElementsSnapshot(arguments)
             case "wait_time":
                 return await self.handleWaitTime(arguments)
+            case "read_content":
+                return await self.handleRecognizeText(arguments)
             case "list_running_applications":
                 return await self.handleListRunningApplications(arguments)
             case "list_application_windows":
@@ -448,6 +464,15 @@ public final class AppMCPServer: @unchecked Sendable {
             return CallTool.Result(content: [.text(result)])
         } catch {
             return handleToolError(error, toolName: "list_application_windows")
+        }
+    }
+    
+    internal func handleRecognizeText(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await performTextRecognition(arguments)
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return handleToolError(error, toolName: "read_content")
         }
     }
     
@@ -642,7 +667,7 @@ public final class AppMCPServer: @unchecked Sendable {
         let originalImage = try await pilot.capture(window: window)
         
         // Resize image to reasonable dimensions for MCP
-        let cgImage = resizeImageIfNeeded(originalImage, maxDimension: 480)
+        let cgImage = resizeImageIfNeeded(originalImage, maxDimension: 320)
         
         // Use AppPilot's ScreenCaptureUtility for image conversion with compression
         let imageData: Data
@@ -711,17 +736,20 @@ public final class AppMCPServer: @unchecked Sendable {
         let queryOptions = extractOptionalObject(from: arguments, key: "query")
         let axQuery = try buildAXQuery(from: queryOptions)
         
+        // Check if text recognition is requested
+        let includeTextRecognition = extractOptionalBool(from: arguments, key: "includeTextRecognition") ?? false
+        
         // Capture UI snapshot using AppPilot with AXQuery filtering
         let snapshot = try await pilot.snapshot(window: window, query: axQuery)
         
-        // Resize image for MCP compatibility
+        // Resize image for MCP compatibility (smaller size for network efficiency)
         guard let originalImage = snapshot.image else {
             throw AppMCPError.systemError("Failed to extract image from snapshot")
         }
-        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 480)
+        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 240)
         
-        // Convert to JPEG for efficiency
-        guard let imageData = ScreenCaptureUtility.convertToJPEG(resizedImage, quality: 0.4) else {
+        // Convert to JPEG for efficiency (lower quality for smaller size)
+        guard let imageData = ScreenCaptureUtility.convertToJPEG(resizedImage, quality: 0.2) else {
             throw AppMCPError.systemError("Failed to convert snapshot to JPEG")
         }
         
@@ -729,6 +757,29 @@ public final class AppMCPServer: @unchecked Sendable {
         let elementsJson = try AXUI.AIFormatHelpers.convertToAIFormat(
             elements: snapshot.elements
         )
+        
+        // Perform text recognition if requested
+        var textRecognitionSection = ""
+        if includeTextRecognition {
+            do {
+                let textResult = try await VisionTextRecognition.recognizeText(
+                    in: resizedImage
+                )
+                let textJson = try VisionTextRecognition.formatAsJSON(textResult)
+                textRecognitionSection = """
+                
+                Text Recognition:
+                \(textJson)
+                """
+            } catch {
+                // Include error but don't fail the entire operation
+                textRecognitionSection = """
+                
+                Text Recognition:
+                {"error": "Text recognition failed: \(error.localizedDescription)"}
+                """
+            }
+        }
         
         // Build metadata information
         let windowTitle = snapshot.windowInfo.title ?? "Unknown Window"
@@ -738,6 +789,26 @@ public final class AppMCPServer: @unchecked Sendable {
         
         let base64Data = imageData.base64EncodedString()
         
+        // Check if response would be too large and provide summary only
+        let totalSize = base64Data.count + elementsJson.count + textRecognitionSection.count
+        if totalSize > 50000 { // 50KB limit for better MCP compatibility
+            return """
+            UI Snapshot captured (large response truncated for MCP compatibility):
+            - Window: \(windowTitle)
+            - Dimensions: \(dimensions)
+            - Format: JPEG
+            - Size: \(fileSizeKB) KB
+            - Elements found: \(elementCount)
+            - Text recognition: \(includeTextRecognition ? "enabled" : "disabled")
+            - Total response size: \(String(format: "%.1f", Double(totalSize) / 1024.0)) KB
+            
+            Summary:
+            {"window": "\(windowTitle)", "elementCount": \(elementCount), "dimensions": "\(dimensions)"}
+            
+            Note: Full screenshot and elements data truncated due to size. Use elements_snapshot tool for UI elements only.
+            """
+        }
+        
         return """
         UI Snapshot captured successfully:
         - Window: \(windowTitle)
@@ -745,14 +816,43 @@ public final class AppMCPServer: @unchecked Sendable {
         - Format: JPEG
         - Size: \(fileSizeKB) KB
         - Elements found: \(elementCount)
+        - Text recognition: \(includeTextRecognition ? "enabled" : "disabled")
         - Captured: \(Date().formatted())
         
         Screenshot:
         data:image/jpeg;base64,\(base64Data)
         
         UI Elements:
-        \(elementsJson)
+        \(elementsJson)\(textRecognitionSection)
         """
+    }
+    
+    private func performTextRecognition(_ arguments: [String: MCP.Value]) async throws -> String {
+        let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
+        let app = try await pilot.findApplication(bundleId: bundleID)
+        
+        // Extract recognition options
+        let recognitionLevelStr = extractOptionalString(from: arguments, key: "recognitionLevel") ?? "accurate"
+        let recognitionLevel: VNRequestTextRecognitionLevel = recognitionLevelStr == "fast" ? .fast : .accurate
+        
+        // Try different capture approaches for better compatibility
+        let originalImage: CGImage
+        
+        // Simply try to resolve window and capture - let any errors propagate
+        let window = try await resolveWindow(from: arguments, for: app)
+        originalImage = try await pilot.capture(window: window)
+        
+        // Resize image for faster text recognition
+        let resizedImage = resizeImageIfNeeded(originalImage, maxDimension: 800)
+        
+        // Perform block-level text recognition with automatic language detection
+        let textResult = try await VisionTextRecognition.recognizeText(
+            in: resizedImage,
+            recognitionLevel: recognitionLevel
+        )
+        
+        // Return structured JSON format with simplified layout information
+        return try VisionTextRecognition.formatAsStructuredData(textResult)
     }
     
     private func performElementsSnapshot(_ arguments: [String: MCP.Value]) async throws -> String {
@@ -1044,6 +1144,20 @@ public final class AppMCPServer: @unchecked Sendable {
         return bool
     }
     
+    private func extractOptionalStringArray(from arguments: [String: MCP.Value], key: String) -> [String]? {
+        guard let value = arguments[key] else { return nil }
+        guard case .array(let array) = value else { return nil }
+        
+        var strings: [String] = []
+        for item in array {
+            if case .string(let str) = item {
+                strings.append(str)
+            }
+        }
+        
+        return strings.isEmpty ? nil : strings
+    }
+    
     // MARK: - Dynamic Element Discovery
     
     /// Find search field dynamically using UI snapshot analysis
@@ -1133,6 +1247,11 @@ public final class AppMCPServer: @unchecked Sendable {
     // MARK: - User-Friendly Element Type Mapping
     
     private func resolveWindow(from arguments: [String: MCP.Value], for app: AppHandle) async throws -> WindowHandle {
+        // Check for explicit windowHandle parameter first
+        if let windowHandleId = extractOptionalString(from: arguments, key: "windowHandle") {
+            return WindowHandle(id: windowHandleId)
+        }
+        
         // Check for explicit window parameter
         if let windowTitle = extractOptionalString(from: arguments, key: "window") {
             guard let window = try await pilot.findWindow(app: app, title: windowTitle) else {
@@ -1150,9 +1269,11 @@ public final class AppMCPServer: @unchecked Sendable {
             return window
         }
         
-        // Default to main window, then first available window
+        // Default to main window, then first available window (revert to original approach)
         let windows = try await pilot.listWindows(app: app)
         
+        // For Chrome and other browsers, don't pre-validate with capture
+        // as they may have special security restrictions
         if let mainWindow = windows.first(where: { $0.isMain }) {
             return mainWindow.id
         }
