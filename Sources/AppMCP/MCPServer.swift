@@ -367,8 +367,6 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleCaptureUISnapshot(arguments)
             case "elements_snapshot":
                 return await self.handleElementsSnapshot(arguments)
-            case "wait_time":
-                return await self.handleWaitTime(arguments)
             case "read_content":
                 return await self.handleRecognizeText(arguments)
             case "list_running_applications":
@@ -440,14 +438,6 @@ public final class AppMCPServer: @unchecked Sendable {
         }
     }
     
-    internal func handleWaitTime(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
-        do {
-            let result = try await performWait(arguments)
-            return CallTool.Result(content: [.text(result)])
-        } catch {
-            return handleToolError(error, toolName: "wait_time")
-        }
-    }
     
     internal func handleListRunningApplications(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
         do {
@@ -548,18 +538,6 @@ public final class AppMCPServer: @unchecked Sendable {
     
     
     
-    private func performWait(_ arguments: [String: MCP.Value]) async throws -> String {
-        // Extract required duration parameter using type-safe method
-        let duration = try extractRequiredDouble(from: arguments, key: "duration")
-        
-        // Validate duration is positive
-        guard duration > 0 else {
-            throw AppMCPError.invalidParameters("Duration must be positive, got \(duration)")
-        }
-        
-        try await pilot.wait(.time(seconds: duration))
-        return "Waited \(duration) seconds"
-    }
     
     private func performDrag(_ arguments: [String: MCP.Value]) async throws -> String {
         let fromElementId = try extractRequiredString(from: arguments, key: "fromElementId")
