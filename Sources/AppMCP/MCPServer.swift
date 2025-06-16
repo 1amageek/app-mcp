@@ -146,7 +146,7 @@ public final class AppMCPServer: @unchecked Sendable {
                             "method": [
                                 "type": "string",
                                 "enum": ["type", "setValue"],
-                                "description": "Input method (default: type)"
+                                "description": "Input method - 'setValue': directly sets the value (fast, reliable) | 'type': simulates actual keystrokes (triggers input events, works with auto-complete) (default: setValue)"
                             ]
                         ],
                         "required": ["elementId", "text"]
@@ -196,6 +196,47 @@ public final class AppMCPServer: @unchecked Sendable {
                             ]
                         ],
                         "required": ["elementId", "deltaY"]
+                    ]
+                ),
+                
+                MCP.Tool(
+                    name: "keyboard_input",
+                    description: "Send keyboard input including shortcuts (Cmd+C), special keys (Enter, Tab), and key combinations",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "elementId": [
+                                "type": "string",
+                                "description": "Element ID to focus before sending keys (optional)"
+                            ],
+                            "keys": [
+                                "type": "array",
+                                "description": "Array of key inputs to send",
+                                "items": [
+                                    "type": "object",
+                                    "properties": [
+                                        "key": [
+                                            "type": "string",
+                                            "description": "Key to press (e.g., 'c', 'enter', 'tab', 'escape')"
+                                        ],
+                                        "modifiers": [
+                                            "type": "array",
+                                            "items": [
+                                                "type": "string",
+                                                "enum": ["cmd", "shift", "alt", "ctrl", "option"]
+                                            ],
+                                            "description": "Modifier keys to hold (optional)"
+                                        ]
+                                    ],
+                                    "required": ["key"]
+                                ]
+                            ],
+                            "delay": [
+                                "type": "number",
+                                "description": "Delay between key inputs in milliseconds (default: 50)"
+                            ]
+                        ],
+                        "required": ["keys"]
                     ]
                 ),
                 
@@ -363,6 +404,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleDragDrop(arguments)
             case "scroll_window":
                 return await self.handleScrollWindow(arguments)
+            case "keyboard_input":
+                return await self.handleKeyboardInput(arguments)
             case "capture_ui_snapshot":
                 return await self.handleCaptureUISnapshot(arguments)
             case "elements_snapshot":
@@ -417,6 +460,15 @@ public final class AppMCPServer: @unchecked Sendable {
             return CallTool.Result(content: [.text(result)])
         } catch {
             return handleToolError(error, toolName: "scroll_window")
+        }
+    }
+    
+    internal func handleKeyboardInput(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await performKeyboardInput(arguments)
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return handleToolError(error, toolName: "keyboard_input")
         }
     }
     
@@ -523,7 +575,7 @@ public final class AppMCPServer: @unchecked Sendable {
     private func performSetText(_ arguments: [String: MCP.Value]) async throws -> String {
         let elementId = try extractRequiredString(from: arguments, key: "elementId")
         let text = try extractRequiredString(from: arguments, key: "text")
-        let method = extractOptionalString(from: arguments, key: "method") ?? "type"
+        let method = extractOptionalString(from: arguments, key: "method") ?? "setValue"
         
         if method == "setValue" {
             // Use AppPilot's direct setValue method (efficient)
@@ -593,6 +645,192 @@ public final class AppMCPServer: @unchecked Sendable {
         _ = try await pilot.scroll(deltaX: deltaX, deltaY: deltaY, at: scrollPoint)
         
         return "Scrolled at element '\(elementId)' location (\(scrollPoint.x), \(scrollPoint.y)) with delta (\(deltaX), \(deltaY))"
+    }
+    
+    private func performKeyboardInput(_ arguments: [String: MCP.Value]) async throws -> String {
+        let keys = try extractRequiredArray(from: arguments, key: "keys")
+        let elementId = extractOptionalString(from: arguments, key: "elementId")
+        let delay = extractOptionalDouble(from: arguments, key: "delay") ?? 50
+        
+        // Focus element if specified
+        if let elementId = elementId {
+            // Check if element exists
+            guard try await pilot.elementExists(elementID: elementId) else {
+                throw AppMCPError.elementNotAccessible("Element '\(elementId)' not found or not accessible")
+            }
+            
+            // Click to focus the element
+            _ = try await pilot.click(elementID: elementId)
+            
+            // Small delay after focusing
+            try await Task.sleep(nanoseconds: UInt64(50 * 1_000_000))
+        }
+        
+        var sentKeys: [String] = []
+        
+        // Process each key input
+        for (index, keyValue) in keys.enumerated() {
+            guard case .object(let keyObj) = keyValue else {
+                throw AppMCPError.invalidParameterType("keys[\(index)]", expected: "object", got: "\(keyValue)")
+            }
+            
+            let key = try extractRequiredString(from: keyObj, key: "key")
+            let modifiers = extractOptionalStringArray(from: keyObj, key: "modifiers") ?? []
+            
+            // Send the key combination
+            try await sendKeyCombination(key: key, modifiers: modifiers)
+            
+            // Build description for this key
+            var keyDesc = ""
+            if !modifiers.isEmpty {
+                keyDesc = modifiers.joined(separator: "+") + "+"
+            }
+            keyDesc += key
+            sentKeys.append(keyDesc)
+            
+            // Delay between key inputs (except after the last one)
+            if index < keys.count - 1 && delay > 0 {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000))
+            }
+        }
+        
+        var result = "Sent keyboard input: \(sentKeys.joined(separator: ", "))"
+        if let elementId = elementId {
+            result += " to element '\(elementId)'"
+        }
+        
+        return result
+    }
+    
+    /// Send a key combination with modifiers
+    private func sendKeyCombination(key: String, modifiers: [String]) async throws {
+        // Convert key and modifiers to CGKeyCode and CGEventFlags
+        let keyCode = try keyStringToKeyCode(key)
+        let modifierFlags = try modifiersToEventFlags(modifiers)
+        
+        // Use AppPilot's keyboard functionality if available
+        // For now, we'll use CGEvent directly
+        
+        // Create key down event
+        guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else {
+            throw AppMCPError.systemError("Failed to create key down event")
+        }
+        
+        // Set modifier flags
+        keyDownEvent.flags = modifierFlags
+        
+        // Post key down event
+        keyDownEvent.post(tap: .cghidEventTap)
+        
+        // Small delay for key press duration
+        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        
+        // Create key up event
+        guard let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            throw AppMCPError.systemError("Failed to create key up event")
+        }
+        
+        // Set modifier flags for key up
+        keyUpEvent.flags = modifierFlags
+        
+        // Post key up event
+        keyUpEvent.post(tap: .cghidEventTap)
+    }
+    
+    /// Convert key string to CGKeyCode
+    private func keyStringToKeyCode(_ key: String) throws -> CGKeyCode {
+        // Map common keys to CGKeyCodes
+        switch key.lowercased() {
+        // Letters
+        case "a": return 0x00
+        case "b": return 0x0B
+        case "c": return 0x08
+        case "d": return 0x02
+        case "e": return 0x0E
+        case "f": return 0x03
+        case "g": return 0x05
+        case "h": return 0x04
+        case "i": return 0x22
+        case "j": return 0x26
+        case "k": return 0x28
+        case "l": return 0x25
+        case "m": return 0x2E
+        case "n": return 0x2D
+        case "o": return 0x1F
+        case "p": return 0x23
+        case "q": return 0x0C
+        case "r": return 0x0F
+        case "s": return 0x01
+        case "t": return 0x11
+        case "u": return 0x20
+        case "v": return 0x09
+        case "w": return 0x0D
+        case "x": return 0x07
+        case "y": return 0x10
+        case "z": return 0x06
+        
+        // Numbers
+        case "0": return 0x1D
+        case "1": return 0x12
+        case "2": return 0x13
+        case "3": return 0x14
+        case "4": return 0x15
+        case "5": return 0x17
+        case "6": return 0x16
+        case "7": return 0x1A
+        case "8": return 0x1C
+        case "9": return 0x19
+        
+        // Special keys
+        case "enter", "return": return 0x24
+        case "tab": return 0x30
+        case "space": return 0x31
+        case "delete", "backspace": return 0x33
+        case "escape", "esc": return 0x35
+        case "left": return 0x7B
+        case "right": return 0x7C
+        case "down": return 0x7D
+        case "up": return 0x7E
+        
+        // Function keys
+        case "f1": return 0x7A
+        case "f2": return 0x78
+        case "f3": return 0x63
+        case "f4": return 0x76
+        case "f5": return 0x60
+        case "f6": return 0x61
+        case "f7": return 0x62
+        case "f8": return 0x64
+        case "f9": return 0x65
+        case "f10": return 0x6D
+        case "f11": return 0x67
+        case "f12": return 0x6F
+        
+        default:
+            throw AppMCPError.invalidParameters("Unknown key: '\(key)'")
+        }
+    }
+    
+    /// Convert modifier strings to CGEventFlags
+    private func modifiersToEventFlags(_ modifiers: [String]) throws -> CGEventFlags {
+        var flags = CGEventFlags()
+        
+        for modifier in modifiers {
+            switch modifier.lowercased() {
+            case "cmd", "command":
+                flags.insert(.maskCommand)
+            case "shift":
+                flags.insert(.maskShift)
+            case "alt", "option":
+                flags.insert(.maskAlternate)
+            case "ctrl", "control":
+                flags.insert(.maskControl)
+            default:
+                throw AppMCPError.invalidParameters("Unknown modifier: '\(modifier)'")
+            }
+        }
+        
+        return flags
     }
     
     
@@ -1134,6 +1372,18 @@ public final class AppMCPServer: @unchecked Sendable {
         }
         
         return strings.isEmpty ? nil : strings
+    }
+    
+    private func extractRequiredArray(from arguments: [String: MCP.Value], key: String) throws -> [MCP.Value] {
+        guard let value = arguments[key] else {
+            throw AppMCPError.missingParameter(key)
+        }
+        
+        guard case .array(let array) = value else {
+            throw AppMCPError.invalidParameterType(key, expected: "array", got: "\(value)")
+        }
+        
+        return array
     }
     
     // MARK: - Dynamic Element Discovery

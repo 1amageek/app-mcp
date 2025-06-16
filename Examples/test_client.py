@@ -280,6 +280,79 @@ class AppMCPTestClient:
         
         return True
     
+    async def test_keyboard_input(self):
+        """Test keyboard input functionality"""
+        print("\n⌨️ Testing Keyboard Input")
+        print("-" * 50)
+        
+        # Test 1: Basic shortcuts without element focus
+        print("\n1️⃣ Testing basic shortcuts:")
+        test_cases = [
+            ("Copy", [{"key": "c", "modifiers": ["cmd"]}]),
+            ("Paste", [{"key": "v", "modifiers": ["cmd"]}]),
+            ("Select All", [{"key": "a", "modifiers": ["cmd"]}]),
+            ("Undo", [{"key": "z", "modifiers": ["cmd"]}]),
+            ("Tab Navigation", [{"key": "tab"}]),
+            ("Escape", [{"key": "escape"}]),
+        ]
+        
+        for test_name, keys in test_cases:
+            try:
+                result = await self._send_request("tools/call", {
+                    "name": "keyboard_input",
+                    "arguments": {"keys": keys}
+                })
+                content = result.get("content", [])
+                if content and content[0].get("text", "").startswith("Sent keyboard input:"):
+                    print(f"✅ {test_name}: {content[0]['text']}")
+                else:
+                    print(f"❌ {test_name}: Unexpected result")
+            except Exception as e:
+                print(f"❌ {test_name}: Failed - {str(e)[:60]}...")
+        
+        # Test 2: Multiple key sequence
+        print("\n2️⃣ Testing key sequences:")
+        try:
+            result = await self._send_request("tools/call", {
+                "name": "keyboard_input",
+                "arguments": {
+                    "keys": [
+                        {"key": "a", "modifiers": ["cmd"]},
+                        {"key": "c", "modifiers": ["cmd"]}
+                    ],
+                    "delay": 100
+                }
+            })
+            content = result.get("content", [])
+            if content:
+                print(f"✅ Select All + Copy: {content[0]['text']}")
+        except Exception as e:
+            print(f"❌ Key sequence failed: {e}")
+        
+        # Test 3: Special keys
+        print("\n3️⃣ Testing special keys:")
+        special_keys = [
+            ("Arrow Up", [{"key": "up"}]),
+            ("Arrow Down", [{"key": "down"}]),
+            ("Enter", [{"key": "enter"}]),
+            ("Delete", [{"key": "delete"}]),
+            ("Function Key", [{"key": "f1"}]),
+        ]
+        
+        for test_name, keys in special_keys:
+            try:
+                result = await self._send_request("tools/call", {
+                    "name": "keyboard_input",
+                    "arguments": {"keys": keys}
+                })
+                content = result.get("content", [])
+                if content:
+                    print(f"✅ {test_name}: Success")
+            except Exception as e:
+                print(f"❌ {test_name}: Failed - {str(e)[:60]}...")
+        
+        return True
+    
     # =================================================================
     # Test Scenarios
     # =================================================================
@@ -293,6 +366,7 @@ class AppMCPTestClient:
             ("Application Discovery", self.test_running_applications),
             ("Chrome UI Elements", self.test_chrome_ui_elements),
             ("Text Recognition", self.test_chrome_text_recognition),
+            ("Keyboard Input", self.test_keyboard_input),
             ("Error Handling", self.test_error_handling),
         ]
         
