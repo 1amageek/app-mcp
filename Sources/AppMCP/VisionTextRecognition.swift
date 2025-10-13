@@ -489,6 +489,7 @@ public struct VisionTextRecognition {
         var structuredData: [String: Any] = [
             "fullText": result.fullText,
             "processingTime": result.processingTime,
+            "recognitionLevel": result.recognitionLevel,
             "rows": []
         ]
         

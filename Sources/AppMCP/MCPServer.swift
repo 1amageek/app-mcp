@@ -92,10 +92,8 @@ public final class AppMCPServer: @unchecked Sendable {
             return identifier
         } else if !element.id.isEmpty {
             return element.id
-        } else if let role = element.role {
-            return "\(role.rawValue) element"
         } else {
-            return "UI element"
+            return "\(element.role.rawValue) element"
         }
     }
     
@@ -369,6 +367,22 @@ public final class AppMCPServer: @unchecked Sendable {
                     ]
                 ),
                 
+                // Wait Tool
+                MCP.Tool(
+                    name: "wait_time",
+                    description: "Wait for a specified duration (useful after network operations, UI animations, or async operations)",
+                    inputSchema: [
+                        "type": "object",
+                        "properties": [
+                            "duration": [
+                                "type": "number",
+                                "description": "Duration to wait in seconds"
+                            ]
+                        ],
+                        "required": ["duration"]
+                    ]
+                ),
+
                 // Information Tools
                 MCP.Tool(
                     name: "list_running_applications",
@@ -412,6 +426,8 @@ public final class AppMCPServer: @unchecked Sendable {
                 return await self.handleElementsSnapshot(arguments)
             case "read_content":
                 return await self.handleRecognizeText(arguments)
+            case "wait_time":
+                return await self.handleWaitTime(arguments)
             case "list_running_applications":
                 return await self.handleListRunningApplications(arguments)
             case "list_application_windows":
@@ -517,9 +533,18 @@ public final class AppMCPServer: @unchecked Sendable {
             return handleToolError(error, toolName: "read_content")
         }
     }
-    
-    
-    
+
+    internal func handleWaitTime(_ arguments: [String: MCP.Value]) async -> CallTool.Result {
+        do {
+            let result = try await performWaitTime(arguments)
+            return CallTool.Result(content: [.text(result)])
+        } catch {
+            return handleToolError(error, toolName: "wait_time")
+        }
+    }
+
+
+
     // MARK: - Action Implementations
     
     private func performClick(_ arguments: [String: MCP.Value]) async throws -> String {
@@ -647,6 +672,18 @@ public final class AppMCPServer: @unchecked Sendable {
         return "Scrolled at element '\(elementId)' location (\(scrollPoint.x), \(scrollPoint.y)) with delta (\(deltaX), \(deltaY))"
     }
     
+    private func performWaitTime(_ arguments: [String: MCP.Value]) async throws -> String {
+        let duration = try extractRequiredDouble(from: arguments, key: "duration")
+
+        guard duration > 0 && duration <= 60 else {
+            throw AppMCPError.invalidParameters("Duration must be between 0 and 60 seconds, got: \(duration)")
+        }
+
+        try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+
+        return "Waited for \(duration) seconds"
+    }
+
     private func performKeyboardInput(_ arguments: [String: MCP.Value]) async throws -> String {
         let keys = try extractRequiredArray(from: arguments, key: "keys")
         let elementId = extractOptionalString(from: arguments, key: "elementId")
@@ -870,7 +907,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func performScreenshot(_ arguments: [String: MCP.Value]) async throws -> String {
         let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
+        let app = try await pilot.findApplication(bundleID: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
         
         let format = extractOptionalString(from: arguments, key: "format") ?? "png"
@@ -945,7 +982,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func performUISnapshot(_ arguments: [String: MCP.Value]) async throws -> String {
         let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
+        let app = try await pilot.findApplication(bundleID: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
         
         // Extract query options for AXQuery
@@ -1005,23 +1042,24 @@ public final class AppMCPServer: @unchecked Sendable {
         
         let base64Data = imageData.base64EncodedString()
         
-        // Check if response would be too large and provide summary only
+        // Check if response would be too large - if so, omit screenshot but keep elements
         let totalSize = base64Data.count + elementsJson.count + textRecognitionSection.count
         if totalSize > 50000 { // 50KB limit for better MCP compatibility
+            // Return elements WITHOUT screenshot to stay under size limit
             return """
-            UI Snapshot captured (large response truncated for MCP compatibility):
+            UI Snapshot captured successfully:
             - Window: \(windowTitle)
             - Dimensions: \(dimensions)
             - Format: JPEG
-            - Size: \(fileSizeKB) KB
+            - Size: \(fileSizeKB) KB (screenshot omitted due to size)
             - Elements found: \(elementCount)
             - Text recognition: \(includeTextRecognition ? "enabled" : "disabled")
-            - Total response size: \(String(format: "%.1f", Double(totalSize) / 1024.0)) KB
-            
-            Summary:
-            {"window": "\(windowTitle)", "elementCount": \(elementCount), "dimensions": "\(dimensions)"}
-            
-            Note: Full screenshot and elements data truncated due to size. Use elements_snapshot tool for UI elements only.
+            - Captured: \(Date().formatted())
+
+            Note: Screenshot omitted from response due to size (\(String(format: "%.1f", Double(totalSize) / 1024.0)) KB). UI elements included below.
+
+            UI Elements:
+            \(elementsJson)\(textRecognitionSection)
             """
         }
         
@@ -1045,7 +1083,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func performTextRecognition(_ arguments: [String: MCP.Value]) async throws -> String {
         let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
+        let app = try await pilot.findApplication(bundleID: bundleID)
         
         // Extract recognition options
         let recognitionLevelStr = extractOptionalString(from: arguments, key: "recognitionLevel") ?? "accurate"
@@ -1073,7 +1111,7 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func performElementsSnapshot(_ arguments: [String: MCP.Value]) async throws -> String {
         let bundleID = try extractRequiredString(from: arguments, key: "bundleID")
-        let app = try await pilot.findApplication(bundleId: bundleID)
+        let app = try await pilot.findApplication(bundleID: bundleID)
         let window = try await resolveWindow(from: arguments, for: app)
         
         // Extract query options for AXQuery
@@ -1109,28 +1147,42 @@ public final class AppMCPServer: @unchecked Sendable {
         guard let queryOptions = queryOptions else {
             return nil // Return nil for no filtering (all elements)
         }
-        
-        // Extract query parameters
-        let role = extractOptionalString(from: queryOptions, key: "role")
-        
-        // For now, create a simple query based on role only
-        // TODO: Expand with more AXQuery features as they become available
-        if let role = role, let axuiRole = convertToAXUIRole(role) {
-            var query = AXUI.AXQuery()
-            query.role = axuiRole
-            return query
+
+        var query = AXUI.AXQuery()
+        var hasFilters = false
+
+        // Role filter - use roleQuery for proper role matching
+        if let roleStr = extractOptionalString(from: queryOptions, key: "role"),
+           let role = AXUI.Role(rawValue: roleStr.capitalized) {
+            var roleQuery = AXUI.RoleQuery()
+            roleQuery.equals = role
+            query.roleQuery = roleQuery
+            hasFilters = true
         }
-        
-        // Return nil if no supported filters are specified
-        return nil
+
+        // Title filter - map to descriptionContains for partial match
+        if let title = extractOptionalString(from: queryOptions, key: "title") {
+            query.descriptionContains = title
+            hasFilters = true
+        }
+
+        // Identifier filter - exact match
+        // Note: This maps to query.identifier field, not to AIElement.name
+        if let identifier = extractOptionalString(from: queryOptions, key: "identifier") {
+            query.identifier = identifier
+            hasFilters = true
+        }
+
+        // Enabled state filter
+        if let enabled = extractOptionalBool(from: queryOptions, key: "enabled") {
+            query.enabled = enabled
+            hasFilters = true
+        }
+
+        // Return nil if no supported filters were specified
+        return hasFilters ? query : nil
     }
-    
-    /// Convert user-friendly role string to AXUI.Role
-    private func convertToAXUIRole(_ roleString: String) -> AXUI.Role? {
-        // Try to create AXUI.Role directly from string
-        return AXUI.Role(rawValue: roleString.capitalized)
-    }
-    
+
     // MARK: - Image Processing Utilities
     
     private func resizeImageIfNeeded(_ image: CGImage, maxDimension: Int) -> CGImage {
@@ -1224,19 +1276,29 @@ public final class AppMCPServer: @unchecked Sendable {
     
     private func getApplications() async throws -> String {
         // Use AppPilot to get real running applications
-        let apps = try await pilot.listApplications()
-        
+        let apps: [AppInfo]
+        do {
+            apps = try await pilot.listApplications()
+        } catch {
+            // If we can't list applications at all, return error information
+            throw AppMCPError.permissionDenied("Cannot list applications: \(error.localizedDescription)")
+        }
+
         var appData: [[String: Any]] = []
-        
+
         for app in apps {
+            // Skip processing apps that may cause permission errors
+            // Only include basic information for all apps
             var appInfo: [String: Any] = [
                 "name": app.name,
                 "bundleID": app.bundleIdentifier ?? "unknown",
                 "handle": app.id.id,
-                "isActive": app.isActive
+                "isActive": app.isActive,
+                "windows": [],
+                "windowCount": 0
             ]
-            
-            // Get windows for this application
+
+            // Try to get windows, but don't fail if we can't access this specific app
             do {
                 let windows = try await pilot.listWindows(app: app.id)
                 let windowData = windows.map { window in
@@ -1256,14 +1318,13 @@ public final class AppMCPServer: @unchecked Sendable {
                 appInfo["windows"] = windowData
                 appInfo["windowCount"] = windows.count
             } catch {
-                // If we can't get windows (permission issues), include empty array
-                appInfo["windows"] = []
-                appInfo["windowCount"] = 0
+                // Silently skip apps we can't access (permission issues)
+                // Keep the empty windows array and 0 count already set
             }
-            
+
             appData.append(appInfo)
         }
-        
+
         let data = try JSONSerialization.data(withJSONObject: ["applications": appData])
         return String(data: data, encoding: .utf8) ?? "{}"
     }
@@ -1396,7 +1457,7 @@ public final class AppMCPServer: @unchecked Sendable {
         var searchCandidates: [AXUI.AXElement] = []
         for element in snapshot.elements {
             // Check role (various search field implementations)
-            let roleMatches = ["TextField", "SearchField", "Field"].contains(element.role?.rawValue ?? "")
+            let roleMatches = ["TextField", "SearchField", "Field"].contains(element.role.rawValue)
             
             // Check description/identifier for search-related text
             let descriptionText = element.description?.lowercased() ?? ""
@@ -1451,8 +1512,8 @@ public final class AppMCPServer: @unchecked Sendable {
             }
             
             // Prefer elements with known search roles
-            let firstRole = first.role?.rawValue ?? ""
-            let secondRole = second.role?.rawValue ?? ""
+            let firstRole = first.role.rawValue
+            let secondRole = second.role.rawValue
             let firstIsKnownRole = ["TextField", "SearchField"].contains(firstRole)
             let secondIsKnownRole = ["TextField", "SearchField"].contains(secondRole)
             
@@ -1475,11 +1536,6 @@ public final class AppMCPServer: @unchecked Sendable {
     // MARK: - User-Friendly Element Type Mapping
     
     private func resolveWindow(from arguments: [String: MCP.Value], for app: AppHandle) async throws -> WindowHandle {
-        // Check for explicit windowHandle parameter first
-        if let windowHandleId = extractOptionalString(from: arguments, key: "windowHandle") {
-            return WindowHandle(id: windowHandleId)
-        }
-        
         // Check for explicit window parameter
         if let windowTitle = extractOptionalString(from: arguments, key: "window") {
             guard let window = try await pilot.findWindow(app: app, title: windowTitle) else {

@@ -506,7 +506,7 @@ struct WeatherAppTests {
         let pilot = AppPilot()
         
         // Find Weather app
-        let app = try await pilot.findApplication(bundleId: weatherBundleID)
+        let app = try await pilot.findApplication(bundleID: weatherBundleID)
         
         // Find window (first window)
         guard let window = try await pilot.findWindow(app: app, index: 0) else {
@@ -783,7 +783,7 @@ struct WeatherAppTests {
         
         // Get app and window handles
         let pilot = AppPilot()
-        let app = try await pilot.findApplication(bundleId: bundleID)
+        let app = try await pilot.findApplication(bundleID: bundleID)
         let window = try await pilot.findWindow(app: app, index: 0) ?? {
             throw WeatherTestError.automationError("Could not find Weather app window")
         }()
@@ -794,48 +794,42 @@ struct WeatherAppTests {
         // Debug: Print all elements to understand the structure
         print("=== ALL ELEMENTS IN SNAPSHOT ===")
         for (index, element) in snapshot.elements.enumerated() {
-            print("Element \(index): role=\(element.role?.rawValue ?? "nil"), bounds=\(element.bounds ?? []), description=\(element.description ?? "nil"), identifier=\(element.identifier ?? "nil")")
+            print("Element \(index): role=\(element.role.rawValue), bounds=\(element.bounds ?? []), description=\(element.description ?? "nil"), identifier=\(element.identifier ?? "nil")")
         }
         print("=== END OF ELEMENTS ===")
         
-        // Find search field candidates dynamically based on discovered structure
+        // Find search field candidates dynamically based on semantic properties
+        // ✅ CORRECT: Using semantic detection (role, description) instead of hardcoded coordinates
         var searchFieldCandidates: [AXUI.AXElement] = []
         for element in snapshot.elements {
-            // Look for search button/field by description
-            let hasSearchTitle = element.description?.contains("検索") == true
-            
-            var isInToolbar = false
-            var isLargeToolbarElement = false
-            var isSmallSearchElement = false
-            
-            if let position = element.position, let size = element.size {
-                let minY = position.y
-                let maxY = position.y + size.height
-                let width = size.width
-                
-                // Look for elements in toolbar area (based on observed coordinates)
-                isInToolbar = minY > -1030 && maxY < -990
-                
-                // Large element in toolbar area (like the search field container)
-                isLargeToolbarElement = isInToolbar && width > 100
-                
-                // Small element with search title (like the search button)
-                isSmallSearchElement = hasSearchTitle && width > 15 && width < 50
-            }
-            
-            if isLargeToolbarElement || isSmallSearchElement {
+            // Semantic detection: Look for search field by role and description
+            let hasSearchDescription = element.description?.contains("検索") == true ||
+                                      element.description?.contains("Search") == true
+
+            // Check multiple role variations for maximum compatibility
+            let roleValue = element.role.rawValue
+            let isTextField = roleValue == "TextField" ||
+                            roleValue == "AXTextField" ||
+                            roleValue == "Field" ||
+                            roleValue == "field"
+
+            let isSearchFieldRole = roleValue == "SearchField" ||
+                                   roleValue == "AXSearchField"
+
+            // Accept any field with "search" semantics
+            if (isTextField && hasSearchDescription) || isSearchFieldRole {
                 searchFieldCandidates.append(element)
             }
         }
         
         print("Found \(searchFieldCandidates.count) search field candidates:")
         for candidate in searchFieldCandidates {
-            print("  - role=\(candidate.role?.rawValue ?? "nil"), bounds=\(String(describing: candidate.bounds)), description=\(candidate.description ?? "nil"), identifier=\(candidate.identifier ?? "nil")")
+            print("  - role=\(candidate.role.rawValue), bounds=\(String(describing: candidate.bounds)), description=\(candidate.description ?? "nil"), identifier=\(candidate.identifier ?? "nil")")
         }
         
         // Try to use the discovered elements
         if let searchElement = searchFieldCandidates.first {
-            print("🔍 Found search element dynamically: role=\(searchElement.role?.rawValue ?? "nil"), bounds=\(String(describing: searchElement.bounds))")
+            print("🔍 Found search element dynamically: role=\(searchElement.role.rawValue), bounds=\(String(describing: searchElement.bounds))")
             
             do {
                 // Note: Direct coordinate clicking is not supported in the element ID API
@@ -953,9 +947,9 @@ struct WeatherAppTests {
         do {
             // Note: Coordinate-based clicking is not supported in the element ID API
             // This strategy is no longer viable with the modern API design
-            let clickResult = "Not available"
-            let typeResult = "Not available"
-            
+            let _ = "Not available"
+            let _ = "Not available"
+
             throw WeatherTestError.automationError("Coordinate-based clicking not available in element ID API")
         } catch {
             print("Strategy 3 failed with detailed error: \(error)")

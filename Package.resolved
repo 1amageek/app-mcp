@@ -1,5 +1,5 @@
 {
-  "originHash" : "7007072e76f2fe9dcd4e983c5e63b5db7ec3d5894d340dd3ed3396e95710b0e3",
+  "originHash" : "94b05604a4ca4927dd8a30606daf2ffc8258722427eae016c0b29eafb27fd0b6",
   "pins" : [
     {
       "identity" : "apppilot",
@@ -7,7 +7,7 @@
       "location" : "https://github.com/1amageek/AppPilot.git",
       "state" : {
         "branch" : "main",
-        "revision" : "c12a76f73f363ba7fc363a9c39d31bfd073662c4"
+        "revision" : "6546d296964908d2e2d2d773b83a22469d7a5eab"
       }
     },
     {
@@ -16,16 +16,16 @@
       "location" : "https://github.com/1amageek/AXUI.git",
       "state" : {
         "branch" : "main",
-        "revision" : "e1940be8d60f1429eb230848210f54f8a33c249d"
+        "revision" : "a3709140e58269cf3f7a032e4102dc9e8880cc4f"
       }
     },
     {
       "identity" : "eventsource",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/loopwork-ai/eventsource.git",
+      "location" : "https://github.com/mattt/eventsource.git",
       "state" : {
-        "revision" : "07957602bb99a5355c810187e66e6ce378a1057d",
-        "version" : "1.1.1"
+        "revision" : "a2965424a4babeb0c8e4b5ec9708c3939bc52449",
+        "version" : "1.2.0"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "revision" : "011f0c765fb46d9cac61bca19be0527e99c98c8b",
-        "version" : "1.5.1"
+        "revision" : "cdd0ef3755280949551dc26dee5de9ddeda89f54",
+        "version" : "1.6.2"
       }
     },
     {
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-docc-plugin",
       "state" : {
-        "revision" : "d1691545d53581400b1de9b0472d45eb25c19fed",
-        "version" : "1.4.4"
+        "revision" : "3e4f133a77e644a5812911a0513aeb7288b07d06",
+        "version" : "1.4.5"
       }
     },
     {
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "3d8596ed08bd13520157f0355e35caed215ffbfa",
-        "version" : "1.6.3"
+        "revision" : "ce592ae52f982c847a4efc0dd881cc9eb32d29f2",
+        "version" : "1.6.4"
       }
     },
     {
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/modelcontextprotocol/swift-sdk.git",
       "state" : {
-        "revision" : "9742933d2ff250212a04aed39b123bcc63a21e9c",
-        "version" : "0.9.0"
+        "revision" : "c0407a0b52677cb395d824cac2879b963075ba8c",
+        "version" : "0.10.2"
       }
     },
     {
@@ -78,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system.git",
       "state" : {
-        "revision" : "61e4ca4b81b9e09e2ec863b00c340eb13497dac6",
-        "version" : "1.5.0"
+        "revision" : "395a77f0aa927f0ff73941d7ac35f2b46d47c9db",
+        "version" : "1.6.3"
       }
     }
   ],
