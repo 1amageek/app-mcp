@@ -14,18 +14,19 @@
 ## ✨ Features
 
 ### 🎯 **Visual Intelligence**
-- **Smart Screenshots**: Capture high-resolution app windows using ScreenCaptureKit
-- **OCR Text Recognition**: Extract text from screenshots using Apple's Vision Framework
-- **UI Tree Analysis**: Extract detailed accessibility hierarchies for precise element targeting
+- **Smart Screenshots**: Capture high-resolution app windows with element identification
+- **UI Element Hierarchy**: Extract detailed accessibility trees with unique element IDs
+- **ElementID-Based Targeting**: Capture UI state once, operate multiple times with same IDs
 - **Multi-App Discovery**: Identify and monitor multiple running applications simultaneously
 
 ### 🛠 **Automation Toolkit**
-- **Precise Interactions**: Mouse clicks, keyboard input, and gesture automation
-- **Smart Waiting**: Intelligent delays and condition-based waiting mechanisms
-- **Error Recovery**: Robust fallback strategies for reliable automation
+- **Element-Based Operations**: Click, input text, drag & drop using element IDs
+- **Keyboard Automation**: Execute keyboard shortcuts and key sequences
+- **Smart Waiting**: Time-based wait operations for UI synchronization
+- **Fail-Fast Design**: Explicit error propagation for reliable debugging
 
 ### 🔒 **Privacy & Security**
-- **Permission Management**: Seamless TCC (Transparency, Consent, and Control) integration
+- **Permission Management**: Accessibility and Screen Recording permission handling
 - **Secure Communication**: JSON-RPC over STDIO with structured error handling
 - **Bundle ID Validation**: Verified application targeting for enhanced security
 
@@ -74,58 +75,70 @@ import subprocess
 # Start AppMCP server
 process = subprocess.Popen(['./appmcpd', '--stdio'])
 
-# Take screenshot of Weather app
+# Step 1: Discover running applications
 request = {
     "jsonrpc": "2.0",
     "id": 1,
     "method": "resources/read",
-    "params": {"uri": "app://app_screenshot"}
+    "params": {"uri": "appmcp://resources/running_applications"}
 }
-
-# Send request and get response
 response = send_mcp_request(request)
-print(f"📸 Screenshot captured: {response['result']['contents'][0]['text']}")
-```
+print(f"📱 Running apps: {response['result']['contents'][0]['text']}")
 
-### UI Element Discovery
-
-```python
-# Get accessibility tree
+# Step 2: Capture UI snapshot with screenshot and element IDs
 request = {
     "jsonrpc": "2.0",
     "id": 2,
     "method": "resources/read",
-    "params": {"uri": "app://app_accessibility_tree"}
+    "params": {"uri": "appmcp://ui/snapshot/com.apple.weather"}
 }
+response = send_mcp_request(request)
+snapshot = json.loads(response['result']['contents'][0]['text'])
+print(f"📸 Screenshot: {snapshot['screenshot']}")
+print(f"🌳 Elements: {len(snapshot['elements'])} found")
 
-tree = send_mcp_request(request)
-print(f"🌳 UI Elements: {tree['result']['contents'][0]['text']}")
-```
+# Step 3: Use element IDs to perform actions
+search_field_id = snapshot['elements'][0]['id']  # Example: first element
 
-### Automated Interactions
-
-```python
-# Click on coordinates
 request = {
     "jsonrpc": "2.0",
     "id": 3,
     "method": "tools/call",
     "params": {
-        "name": "mouse_click",
-        "arguments": {"x": 300, "y": 150}
+        "name": "click_element",
+        "arguments": {"elementId": search_field_id}
     }
 }
 
-# Type text
 request = {
     "jsonrpc": "2.0",
     "id": 4,
     "method": "tools/call",
     "params": {
-        "name": "type_text",
-        "arguments": {"text": "Tokyo"}
+        "name": "input_text",
+        "arguments": {
+            "elementId": search_field_id,
+            "text": "Tokyo",
+            "method": "setValue"
+        }
     }
 }
+```
+
+### UI Element Discovery Without Screenshot
+
+```python
+# Get just the element hierarchy (faster, no screenshot)
+request = {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "resources/read",
+    "params": {"uri": "appmcp://ui/elements/com.apple.weather"}
+}
+
+tree = send_mcp_request(request)
+elements = json.loads(tree['result']['contents'][0]['text'])
+print(f"🌳 Elements: {elements}")
 ```
 
 ---
@@ -134,36 +147,35 @@ request = {
 
 ```mermaid
 graph TB
-    A[🤖 AI Model] -->|JSON-RPC| B[📡 MCP Server]
+    A[🤖 AI Model] -->|JSON-RPC| B[📡 AppMCPServer]
     B --> C[🔍 Resources]
     B --> D[🛠 Tools]
-    
-    C --> E[📱 App Screenshot]
-    C --> F[🌳 Accessibility Tree]
-    C --> G[📋 Running Apps]
-    
-    D --> H[🖱 Mouse Control]
-    D --> I[⌨️ Keyboard Input]
-    D --> J[⏱ Wait Functions]
-    
-    E --> K[📱 macOS Apps]
-    F --> K
-    G --> K
-    H --> K
-    I --> K
-    J --> K
+
+    C --> E[📱 running_applications]
+    C --> F[🪟 application_windows]
+    C --> G[📸 ui_snapshot]
+    C --> H[🌳 ui_elements]
+
+    D --> I[🖱 click_element]
+    D --> J[⌨️ input_text]
+    D --> K[🎯 drag_drop]
+    D --> L[📜 scroll_window]
+    D --> M[⌨️ keyboard_input]
+    D --> N[⏱ wait_time]
+
+    B --> O[🚀 AppPilot]
+    O --> P[📱 macOS Apps]
 ```
 
 ### Core Components
 
 | Component | Description | Technology |
 |-----------|-------------|------------|
-| **🎯 AppSelector** | Application discovery and targeting | AppKit, NSWorkspace |
-| **📸 ScreenCaptureProvider** | High-quality screenshot capture | ScreenCaptureKit (macOS 15+) |
-| **🌳 AppAXTreeProvider** | Accessibility tree extraction | Accessibility API |
-| **🖱 MouseClickTool** | Precise mouse automation | CGEvent, Quartz |
-| **⌨️ KeyboardTool** | Text input and shortcuts | CGEvent, Carbon |
-| **🔒 TCCManager** | Permission management | TCC Framework |
+| **📡 AppMCPServer** | MCP protocol server with Resources and Tools | MCP SDK v0.7.1, Swift 6.1 |
+| **🚀 AppPilot** | Core macOS UI automation framework | Accessibility API, CGEvent |
+| **🔍 Resources** | Read-only data sources (apps, windows, UI state) | NSWorkspace, AXUIElement |
+| **🛠 Tools** | State-mutating operations (click, type, drag) | CGEvent, AXUIElement |
+| **🔒 Permissions** | Accessibility and Screen Recording management | TCC Framework |
 
 ---
 
@@ -212,69 +224,98 @@ Test Suite 'AppMCPTests' passed at 2025-06-04 16:42:04.049
 
 ## 🛠 API Reference
 
-### MCP Tools
+### MCP Resources (Read-Only Data)
 
-AppMCP provides the following specialized tools for macOS automation:
+AppMCP provides 4 resources for querying macOS UI state:
 
-#### Screenshot & UI Analysis
-- **`capture_ui_snapshot`**: Capture screenshot with UI element hierarchy
-  - Optional text recognition via Vision Framework
-  - Element filtering with queries
-  - Returns base64 screenshot + structured UI data
-  
-- **`recognize_text_in_screenshot`**: 🆕 OCR text extraction from app windows
-  - Multi-language support (en-US, ja-JP, zh-Hans, etc.)
-  - Fast vs accurate recognition modes
-  - Confidence scores and bounding boxes
+#### `running_applications`
+**URI**: `appmcp://resources/running_applications`
 
-#### Automation Controls
-- **`click_element`**: Element-based clicking with multi-button support
-- **`input_text`**: Text input with setValue/type methods
-- **`drag_drop`**: Drag and drop between elements
-- **`scroll_window`**: Scrolling at specific element locations
+List all running applications with metadata:
+- Application name
+- Bundle ID
+- Process ID
+- Active/inactive status
 
-#### App Discovery
-- **`list_running_applications`**: Get all running apps with metadata
-- **`list_application_windows`**: List windows with bounds and visibility
+#### `application_windows`
+**URI**: `appmcp://resources/application_windows`
 
-### Text Recognition Features
+List windows for all applications with:
+- Window title
+- Bounds (x, y, width, height)
+- Visibility status
+- Z-order information
 
-The Vision Framework integration provides powerful OCR capabilities:
+#### `ui_snapshot`
+**URI**: `appmcp://ui/snapshot/{bundleID}`
 
-```json
-{
-  "bundleID": "com.apple.TextEdit",
-  "includeTextRecognition": true,
-  "recognitionLanguages": ["en-US", "ja-JP"],
-  "recognitionLevel": "accurate"
-}
-```
+Capture UI state with screenshot and element IDs:
+- **Screenshot**: Base64-encoded PNG image
+- **Elements**: Array of UI elements with unique IDs, roles, titles, bounds
+- **Use case**: AI visual analysis + programmatic access
 
-**Recognition Results:**
-- Full text extraction in reading order
-- Individual text regions with confidence scores
-- Bounding boxes in normalized coordinates
-- Support for 50+ languages
-- Handwritten text detection
+#### `ui_elements`
+**URI**: `appmcp://ui/elements/{bundleID}`
+
+Get element hierarchy without screenshot (faster):
+- Element ID, role, title, bounds
+- Accessibility hierarchy
+- **Use case**: Quick element discovery without visual capture
+
+---
+
+### MCP Tools (State-Mutating Actions)
+
+AppMCP provides 6 specialized tools for macOS automation:
+
+#### `click_element`
+Click UI elements using element ID:
+- **Parameters**: `elementId`, `button` (left/right/center), `clickCount`
+- **Returns**: Success message with clicked element info
+
+#### `input_text`
+Input text into UI elements:
+- **Parameters**: `elementId`, `text`, `method` (type/setValue)
+- **Returns**: Success message with input confirmation
+
+#### `drag_drop`
+Drag and drop between elements:
+- **Parameters**: `fromElementId`, `toElementId`, `duration`
+- **Returns**: Success message with drag operation info
+
+#### `scroll_window`
+Scroll at element location:
+- **Parameters**: `elementId`, `deltaX`, `deltaY`
+- **Returns**: Success message with scroll info
+
+#### `keyboard_input`
+Execute keyboard shortcuts and sequences:
+- **Parameters**: `keys`, `modifiers` (command/option/control/shift)
+- **Returns**: Success message with executed keys
+
+#### `wait_time`
+Time-based wait operation:
+- **Parameters**: `duration` (seconds, max 60.0)
+- **Returns**: Success message after waiting
 
 ---
 
 ## 🎯 Roadmap
 
-### 🌟 Current (v1.0.0)
-- [x] Weather app automation PoC
-- [x] Basic screenshot & UI tree extraction
-- [x] Mouse & keyboard automation
-- [x] Permission management
-- [x] Vision Framework OCR text recognition
+### 🌟 Current (v1.0)
+- [x] Resource-based UI inspection (apps, windows, snapshots)
+- [x] ElementID-based automation workflow
+- [x] 6 specialized MCP tools (click, input, drag, scroll, keyboard, wait)
+- [x] AppPilot integration for core automation
+- [x] Fail-fast error handling
 
-### 🚀 Near Future (v0.2.0)
+### 🚀 Near Future (v1.1)
 - [ ] Multi-app simultaneous control
-- [ ] DevTools integration
-- [ ] Enhanced error recovery
+- [ ] Window management operations
+- [ ] Enhanced element search with criteria
 - [ ] Performance optimizations
 
-### 🔮 Long Term (v1.0.0)
+### 🔮 Long Term (v2.0)
 - [ ] HTTP transport support
 - [ ] Shortcuts.app integration
 - [ ] Plugin SDK for extensions

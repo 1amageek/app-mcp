@@ -11,36 +11,60 @@ AppMCP is now designed with clear separation of concerns:
 
 AppMCP depends on AppPilot for all automation functionality, providing a clean MCP interface layer.
 
-## Important: How to Use AppMCP Tools Correctly
+## Important: MCP Tools and Resources
 
-### Modern AppMCP Tool Usage
-AppMCP now provides 6 specialized MCP tools (redesigned December 2024):
-- `capture_ui_snapshot`: Unified UI state capture (screenshot + element hierarchy with IDs)
-- `click_element`: Element ID-based clicking with multi-button support
-- `input_text`: Element ID-based text input with method selection (type/setValue)
-- `drag_drop`: Element ID-based drag operations between elements
-- `scroll_window`: Element ID-based scrolling at specific element locations
+### MCP Tools (6 State-Mutating Actions)
+AppMCP provides specialized tools for UI automation actions:
+- `click_element`: Click UI elements by element ID with multi-button support
+- `input_text`: Input text with type or setValue methods
+- `drag_drop`: Drag and drop operations between elements
+- `scroll_window`: Scroll operations at element locations
+- `keyboard_input`: Execute keyboard shortcuts and key sequences
 - `wait_time`: Time-based waiting operations
 
-### Modern ElementID-Based Design
-All operations now use element IDs from `capture_ui_snapshot` for maximum efficiency:
-- **ElementID-First Approach**: No more bundleID/window parameters needed
-- **Snapshot-Driven Workflow**: Capture UI state once, operate multiple times
-- **AI-Optimized**: Visual screenshot + element IDs enable intelligent automation
-- **Performance**: Direct element operations without search overhead
-- **Reliability**: Elements validated and accessible when snapshot captured
+**Key Principle**: Tools modify state (clicks, typing, etc.)
 
-### Listing Available Applications
-When asked to "list available apps" or "show running applications":
-- **DO** use the `running_applications` resource: `appmcp://resources/running_applications`
-- This returns ALL running apps with names, bundle IDs, handles, and active status
+### MCP Resources (4 Read-Only Data Sources)
+AppMCP provides resources for querying UI state:
+- `running_applications` (`appmcp://resources/running_applications`): List all running apps
+- `application_windows` (`appmcp://resources/application_windows`): List windows for an app
+- `ui_snapshot` (`appmcp://ui/snapshot/{bundleID}`): Screenshot + element hierarchy with IDs
+- `ui_elements` (`appmcp://ui/elements/{bundleID}`): Element hierarchy without screenshot
+
+**Key Principle**: Resources are read-only (no state changes)
+
+### Modern ElementID-Based Design
+All operations use element IDs from Resources for maximum efficiency:
+- **Resource-Driven Workflow**: Read UI state via Resources, act via Tools
+- **ElementID-First Approach**: No bundleID/window parameters needed in Tools
+- **AI-Optimized**: Visual screenshots + element IDs enable intelligent automation
+- **Snapshot Reuse**: Capture once, operate multiple times with same IDs
+- **Reliability**: Elements validated when snapshot captured
+
+### CRITICAL: Tool vs Resource Distinction
+
+**Resources** (read-only data via `resources/read`):
+- Accessed with URI: `appmcp://category/resource_name`
+- Return structured JSON data
+- Never modify system state
+- Examples: `running_applications`, `ui_snapshot`
+
+**Tools** (actions via `tools/call`):
+- Take arguments object
+- Modify system state (clicks, typing)
+- Return success/error results
+- Examples: `click_element`, `input_text`
+
+**Common Mistake**:
+- ❌ DON'T treat `ui_snapshot` as a tool
+- ✅ DO use `resources/read` with URI `appmcp://ui/snapshot/{bundleID}`
 
 ### AI Workflow for UI Automation
-1. **Discover**: Use `running_applications` resource to find target app
-2. **Capture**: Use `capture_ui_snapshot` to get screenshot + element IDs  
-3. **Analyze**: AI visually identifies target elements from screenshot
-4. **Act**: Use element IDs with operation tools (click, input, drag, scroll)
-5. **Repeat**: Additional operations use same element IDs (no re-capture needed)
+1. **Discover Apps**: Read `running_applications` resource to find target app
+2. **Capture UI State**: Read `ui_snapshot` resource to get screenshot + element IDs
+3. **AI Analyzes**: LLM examines screenshot to visually identify target elements
+4. **Execute Actions**: Call tools with element IDs from snapshot
+5. **Repeat**: Re-read resources for updated state, or reuse existing element IDs
 
 ## Commands
 
@@ -294,104 +318,65 @@ When testing AppMCP tools:
 
 ## Current Development Focus
 
-### Modern AppMCP with Specialized MCP Tools (v1.0)
-**Target**: Provide robust, secure macOS UI automation through MCP protocol with specialized tools and user-friendly element specification.
+### Modern AppMCP with Resource-Driven UI Automation (v1.0)
+**Target**: Provide robust, secure macOS UI automation through MCP protocol with clear Resource/Tool separation and ElementID-based operations.
 
-**Major Architecture Redesign** (December 2024):
-AppMCP underwent a complete tool architecture redesign based on user feedback that the original unified tool was "too abstracted." The redesign focused on creating specialized tools with user-friendly element specification.
+**Core Architecture**:
+- **Resources**: Read-only UI state inspection (applications, windows, UI snapshots with element IDs)
+- **Tools**: State-mutating operations (click, input, drag, scroll, keyboard, wait)
+- **ElementID Workflow**: Capture UI state once via Resources, operate multiple times via Tools
 
-#### Key Changes Implemented:
-1. **Tool Specialization**: Replaced single `automation` tool with 6 specialized MCP tools
-2. **User-Friendly Element Types**: Eliminated requirement for users to know internal AX role names
-3. **Element Type Mapping**: Automatic conversion from user types to internal accessibility roles
-4. **Test Code Separation**: Moved test helper methods from production to test-only code
-5. **Efficiency Prioritization**: Emphasized direct value setting over user simulation for performance
-
-#### Specialized MCP Tools:
-- **`click_element`**: UI element and coordinate-based clicking with multi-button support
-- **`input_text`**: Text input with method selection (type/setValue) and element targeting
-- **`drag_drop`**: Drag and drop operations with configurable duration
-- **`scroll_window`**: Window scrolling with delta values and position targeting
-- **`find_elements`**: UI element discovery with filtering and user-friendly criteria
-- **`capture_screenshot`**: Window screenshot capture with format selection
-- **`wait_time`**: Time-based waiting operations
-
-#### User-Friendly Element Specification:
-**Before** (Internal AX Roles):
-```json
-{
-  "element": {
-    "role": "AXTextField",
-    "title": "Search"
-  }
-}
-```
-
-**After** (User-Friendly Types):
-```json
-{
-  "element": {
-    "type": "textfield",
-    "text": "Search"
-  }
-}
-```
-
-#### Element Type Mapping System:
-- **`button`** → `.button`, `.popUpButton`, `.menuBarItem`
-- **`textfield`** → `.textField`, `.searchField`
-- **`text`** → `.staticText`
-- **`image`** → `.image`
-- **`menu`** → `.menuBar`, `.menuItem`
-- **`list`** → `.list`
-- **`table`** → `.table`, `.cell`
-- **`checkbox`** → `.checkBox`
-- **`radio`** → `.radioButton`
-- **`slider`** → `.slider`
-
-#### Input Method Selection:
-- **`setValue`**: Direct value setting for efficiency (default for AppMCP)
-- **`type`**: Keystroke simulation for user-like behavior
-
-### Weather App Example Usage (Modern ElementID-Based)
-With the new ElementID-based design, Weather app automation is much more efficient:
+### Weather App Example Usage (Modern Resource + Tool Pattern)
+With the Resource-driven design, Weather app automation is efficient and clear:
 
 ```javascript
-// Step 1: Capture UI state
-const snapshot = await tools.capture_ui_snapshot({
-  bundleID: "com.apple.weather"
-});
+// Step 1: Capture UI state via Resource
+const snapshotResponse = await mcp.readResource("appmcp://ui/snapshot/com.apple.weather");
+const snapshot = JSON.parse(snapshotResponse.contents[0].text);
+
+// snapshot contains:
+// - screenshot: base64-encoded PNG image
+// - elements: [{id, role, title, bounds, ...}, ...]
 
 // Step 2: AI analyzes screenshot and finds search field element ID
-// (e.g., "elem_search_12345" from the elements list)
+// LLM examines screenshot visually and matches to elements array
+const searchField = snapshot.elements.find(el =>
+  el.role === "textfield" && el.title?.includes("Search")
+);
+// Example: searchField.id = "elem_search_12345"
 
-// Step 3: Direct operations using element IDs
-await tools.click_element({
-  elementId: "elem_search_12345"
+// Step 3: Use Tools with element IDs for actions
+await mcp.callTool("click_element", {
+  elementId: searchField.id
 });
 
-await tools.input_text({
-  elementId: "elem_search_12345",
+await mcp.callTool("input_text", {
+  elementId: searchField.id,
   text: "Tokyo",
   method: "setValue"  // Efficient direct setting
 });
 
-// Find and click search button from same snapshot
-await tools.click_element({
-  elementId: "elem_search_btn_67890"
+// Find search button from same snapshot (no re-capture needed)
+const searchButton = snapshot.elements.find(el =>
+  el.role === "button" && el.title?.includes("Search")
+);
+
+await mcp.callTool("click_element", {
+  elementId: searchButton.id
 });
 ```
 
-**Benefits over legacy approach:**
-- 90% fewer parameters (elementId vs bundleID + window + element criteria)
-- AI can visually verify target before clicking
-- Multiple operations from single snapshot
-- No repeated element searches
+**Benefits of Resource-Driven Design:**
+- **Clear separation**: Resources for reading, Tools for acting
+- **Efficient**: Capture once, operate multiple times with same snapshot
+- **AI-optimized**: Visual verification via screenshot + programmatic access via element IDs
+- **Minimal parameters**: Only element ID needed for most operations
+- **No repeated searches**: Element IDs from initial snapshot remain valid
 
-**Core Features Available**:
-- Unified UI snapshot capture (screenshot + element hierarchy)
-- Direct element operations via IDs (no search overhead)
-- AI-optimized workflow (visual + programmatic)
+**Core Features**:
+- Resource-based UI inspection (screenshot + element hierarchy)
+- Tool-based element operations (click, input, drag, scroll)
+- ElementID workflow (IDs from Resources, used by Tools)
 - Efficient text input with setValue method
 - Element-based drag and drop operations
 - Context-aware scrolling at element locations

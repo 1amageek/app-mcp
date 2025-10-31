@@ -45,7 +45,14 @@ public enum AppMCPError: Swift.Error, Sendable {
     case coordinateOutOfBounds(String)
     case timeout(String)
     case imageConversionFailed(String)
-    
+
+    // Model management errors
+    case modelNotConfigured(String)
+    case modelNotFound(path: String)
+    case modelInvalid(path: String, reason: String)
+    case modelLoadFailed(String)
+    case modelLoadTimeout(TimeInterval)
+
     public var localizedDescription: String {
         switch self {
         case .invalidParameters(let msg):
@@ -72,6 +79,16 @@ public enum AppMCPError: Swift.Error, Sendable {
             return "Operation timed out: \(msg)"
         case .imageConversionFailed(let msg):
             return "Image conversion failed: \(msg)"
+        case .modelNotConfigured(let msg):
+            return "AIMv2 model not configured: \(msg)"
+        case .modelNotFound(let path):
+            return "AIMv2 model not found at: \(path)"
+        case .modelInvalid(let path, let reason):
+            return "AIMv2 model invalid at \(path): \(reason)"
+        case .modelLoadFailed(let msg):
+            return "Failed to load AIMv2 model: \(msg)"
+        case .modelLoadTimeout(let timeout):
+            return "Model loading timed out after \(timeout) seconds"
         }
     }
     
